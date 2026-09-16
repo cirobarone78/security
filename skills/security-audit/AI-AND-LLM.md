@@ -48,6 +48,9 @@ The schema accepts aliases, extra fields, duplicate keys, coercions, nested free
 **Unbounded delegated action loops**
 A bounded request can enqueue repeated spend, send, mutation, or external API work without a per-request budget, per-action authorization, cancellation, or idempotency control. Confirm impact on shared cost, quotas, other users, or durable state. Do not test by exhausting a service; use code-level accounting and a locally bounded loop.
 
+**Streaming and partial-turn early dispatch**
+Some agent frameworks start acting on a model's output before it's finished generating, dispatching a tool call, running a command, or feeding an interpreter as soon as a chunk of the response looks complete enough to parse. That means the system can execute on arguments the model hasn't finished writing, arguments a later token changes, or content that a stop, cancel, or safety filter ends up dropping from the final turn entirely. Check whether the dispatcher actually waits for the full, validated turn before it acts, and whether a side effect that's already fired can be stopped once the complete turn doesn't match what was executed. If it's just a live preview with no real action taken, that's not a finding, but if something executes based on content that never makes it into the finalized turn, that is.
+
 ## MCP and sub-agent trust classes (subagent_type: `general`)
 
 **Sub-agent and MCP trust inheritance**
