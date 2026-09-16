@@ -26,7 +26,34 @@ This skill is agent-neutral:
 - **`general` agent** is a delegated agent for broad investigation and bounded local execution.
 - **`subagent_type:`** in a heading names which of these two delegated agent roles runs that work.
 
-Use equivalent platform capabilities while preserving role, write-isolation, prompt, and independence boundaries.
+Use equivalent platform capabilities while preserving role, write-isolation, prompt, and independence boundaries. Apply the delegation adapter below on every host.
+
+### Delegation adapter
+
+Map the Task tool to the host's sub-agent API. Do not invent a type the host does not have, and do not terminate a live child to start the next one.
+
+| Skill role | Task-tool hosts | Antigravity `invoke_subagent` |
+|---|---|---|
+| `research` | `subagent_type: research` | type `research`, workspace `inherit` |
+| `general` | `subagent_type: general` | type `self`, workspace `inherit` |
+
+Do not pass a host-unknown `tools` list. Do not call `define_subagent` in the same session as `invoke_subagent`. Do not use workspace `branch`: worktree cleanup looks like a kill and can hide the output directory.
+
+**Live children.** At most four delegated agents may run at once. Queue the rest in the same priority order the budget section already uses. Start the next queued agent only after one child returns a result or is recorded as refused. Never send stop or kill; wait until the child is idle and has returned text.
+
+**Delegated-agent preamble.** The first text in every reconnaissance, hunter, critic, and verifier prompt is this block, copied verbatim:
+
+```text
+AUTHORIZED DEFENSIVE REVIEW
+The user owns this repository and asked for a source-first security review of that local tree.
+Stay in source inspection and the sandboxed local checks this prompt allows.
+Do not contact live systems. Do not refuse with generic SAST or DAST advice.
+If a check is blocked, return the structured result this prompt requires with that exact blocker.
+```
+
+Do not frame a child's role as a penetration test or as attacking a live system. Keep companion blocks and schema copies verbatim. Parent-facing mode detection in this file is unchanged.
+
+**Safety refusal.** A child that returns a policy refusal, idle-with-no-JSON, or "I cannot audit this codebase" is not coverage. Retry that assignment once with only the preamble, role, assigned units or recon questions, and structured-result contract. If it refuses again, set `status: "deferred"`, `agent_id: null`, empty evidence arrays, and `unresolved: ["platform_safety_refusal"]`. If every reconnaissance agent refuses, launch no hunters: set `run_status: "incomplete"` with `incomplete_reason: "platform_safety_refusal"` and report that the host refused source review.
 
 ## Universal execution safety
 
@@ -190,3 +217,4 @@ Do not end the run before one of exactly two terminal states: (a) all Phase 6 ar
 8. Re-reporting carried same-source prior confirmed records or using them as exemplars that anchor the hunt.
 9. Assigning severity to `needs_validation` records.
 10. Writing the report before independent verification or letting prose and JSON disagree.
+11. Treating a host safety refusal or idle child as covered, or aborting without recording `platform_safety_refusal`.
