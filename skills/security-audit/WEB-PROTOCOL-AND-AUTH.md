@@ -2,7 +2,7 @@
 
 #### When to use this file
 
-Reach for this file when the target speaks HTTP at a parsing, caching, browser-authentication, or identity boundary: web applications, APIs, reverse proxies, CDNs, gateways, custom HTTP servers, and services implementing sessions, JWT, OAuth/OIDC, SAML, password recovery, MFA, passkeys, API keys, or mTLS. Use this with `ATTACK-CLASSES.md`: access-control review asks whether a principal may perform an operation; this file asks whether the HTTP or identity layer can confuse which principal, request, assurance level, or token the operation belongs to.
+Reach for this file when the target speaks HTTP at a parsing, caching, browser-authentication, or identity boundary: web applications, full-stack frameworks (Next.js/Remix), APIs, reverse proxies, CDNs, gateways, custom HTTP servers, and services implementing sessions, JWT, OAuth/OIDC, SAML, password recovery, MFA, passkeys, API keys, or mTLS. Use this with `ATTACK-CLASSES.md`: access-control review asks whether a principal may perform an operation; this file asks whether the HTTP or identity layer can confuse which principal, request, assurance level, or token the operation belongs to.
 
 Pick classes from Phase 1. Split a large target into request framing and cache policy, browser authentication, federated identity, strong authentication and recovery, service credentials, and session lifecycle. A single server behind an unobserved managed proxy has little source-confirmable smuggling surface; a proxy or custom parser has much more.
 
@@ -33,10 +33,16 @@ Untrusted host/proxy metadata determines absolute URLs, tenant routing, callback
 **Response-header injection**
 Untrusted data reaches `Location`, `Set-Cookie`, CSP, or another response header with unsafe control characters or normalization. Verify framework rejection before reporting and require a security-relevant response change.
 
+**Full-stack framework fetch and route-cache poisoning**
+Server-rendered route handlers, loaders, or server-side `fetch` implementations default to shared or persistent cache semantics (`force-cache`). Dynamic user-specific data or tenant queries executed without explicit `no-store` or dynamic cache scoping are cached across requests and served to unrelated callers. Compare route segment configurations, cache tags, and request-dependent data paths to confirm cross-session exposure.
+
 ## Browser-session attack classes (subagent_type: `general`)
 
 **Ordinary CSRF**
 A browser sends ambient credentials to a state-changing endpoint that accepts a cross-site request without an effective anti-CSRF token, same-site request binding, or strict Origin/Referer validation. Inventory every cookie-authenticated mutation, including form, JSON-like, multipart, method-override, and legacy routes. SameSite is effective only for the cookie and browser contexts actually used; login CSRF and cross-site subresource requests can have different requirements.
+
+**Server-action endpoint and mutation binding**
+Functions exported with `'use server'` or compiler-generated RPC transforms expose publicly accessible HTTP POST endpoints identified by synthetic action IDs. Review authentication, per-resource authorization, and anti-CSRF or Origin verification inside the action body itself rather than assuming client UI containment or layout-level gating. Verify that arguments decoded from multipart or JSON action payloads are strictly validated before reaching business logic or data mutations.
 
 **Session fixation and invalidation**
 Session identifiers are not rotated on login, account switch, MFA completion, impersonation, or other privilege changes, or remain valid after logout, password change, revocation, and account disable. Check server sessions, refresh tokens, signed cookies, websocket state, cache copies, and fallback endpoints.

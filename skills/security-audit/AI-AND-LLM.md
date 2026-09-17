@@ -31,6 +31,9 @@ Attacker-controlled content or model summaries are written into memory that late
 **Prompt role and provenance confusion**
 Prompt assembly lets untrusted text impersonate a system message, prior turn, tool result, policy, or memory record. Look for string concatenation, untyped history, caller-controlled role fields, and serialization round trips that lose source labels. Confirm that the forged provenance changes a deterministic trust decision or reaches a meaningful capability.
 
+**Multimodal and document prompt injection**
+Untrusted user-uploaded images, PDFs, or binary documents processed by vision or document models contain adversarial instructions, hidden text, or steganographic payloads. Review how multimodal content enters model context and whether downstream capabilities, system prompts, or tool invocations trust instructions extracted from unauthenticated media.
+
 ## Tool and action attack classes (subagent_type: `general`)
 
 **Tool-argument injection into a downstream sink**
@@ -47,6 +50,9 @@ The schema accepts aliases, extra fields, duplicate keys, coercions, nested free
 
 **Unbounded delegated action loops**
 A bounded request can enqueue repeated spend, send, mutation, or external API work without a per-request budget, per-action authorization, cancellation, or idempotency control. Confirm impact on shared cost, quotas, other users, or durable state. Do not test by exhausting a service; use code-level accounting and a locally bounded loop.
+
+**Commercial API spend asymmetry and denial of wallet**
+Unauthenticated or unmetered entry points forward user-influenced prompts or unbounded generation requests to commercial frontier models with high per-token pricing. A low-cost caller request generates disproportionately large model context or output tokens, exhausting API credits or concurrency quotas. Confirm token limits, user rate limiting, and cost-containment controls around expensive model invocations.
 
 ## MCP and sub-agent trust classes (subagent_type: `general`)
 

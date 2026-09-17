@@ -27,6 +27,9 @@ Attacker-injected `id` or `name` attributes shadow a global, form property, conf
 **Prototype pollution and gadget chain**
 An attacker-controlled key reaches a recursive write such as deep merge or path assignment and modifies prototype state. Then a reachable gadget consumes the polluted property to change authorization, execution, navigation, or rendering. `JSON.parse`, a shallow copy, or pollution without a gadget is not enough.
 
+**Server-component serialization boundary leakage**
+Data passed from server-only contexts (React Server Components, loaders, or server-side query helpers) across the client boundary (`'use client'`) is serialized into client-visible wire payloads (such as RSC flight streams). Trace database models, ORM records, session state, or environment variables to ensure private properties (password hashes, internal roles, billing IDs, or tenant secrets) are explicitly stripped or projected before crossing the serialization boundary into client bundles.
+
 ## Cross-origin messaging and network attack classes (subagent_type: `general`)
 
 **`postMessage` origin and source trust**

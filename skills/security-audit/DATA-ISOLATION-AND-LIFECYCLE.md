@@ -2,7 +2,7 @@
 
 #### When to use this file
 
-Reach for this file when the target stores multi-tenant or access-controlled data, derives search/index/cache/analytics copies, issues object links, exports or restores records, migrates schemas, or promises deletion, revocation, and retention behavior. This domain follows one data item through every copy and state transition. Use `ATTACK-CLASSES.md` for endpoint-level access control and `CLOUD-AND-DEPLOYMENT.md` for provider-level storage policy.
+Reach for this file when the target stores multi-tenant or access-controlled data, uses ORMs or document stores, enforces database-level row security, derives search/index/cache/analytics copies, issues object links, exports or restores records, migrates schemas, or promises deletion, revocation, and retention behavior. This domain follows one data item through every copy and state transition. Use `ATTACK-CLASSES.md` for endpoint-level access control and `CLOUD-AND-DEPLOYMENT.md` for provider-level storage policy.
 
 Split large targets by primary storage, cache/search, object/blob storage, analytics/logging, export/backup, deletion/revocation, and migration.
 
@@ -29,6 +29,15 @@ Row-level policy, ORM default scopes, authorization filters, and raw/bypass clie
 
 **Blob and signed-reference overreach**
 Object keys, attachment IDs, version IDs, shared links, or signed URLs permit operations or namespaces beyond the issuing principal's access, or remain valid after the underlying ACL changes. Bind operation, exact object/version, audience, expiry, and tenant.
+
+**NoSQL operator and query object injection**
+Request body or query parsers decode nested objects directly into document-store or ORM filter criteria without strict scalar type assertion. Operators such as `$gt`, `$ne`, `$regex`, or `$where` supplied by lower-trust callers modify query logic to bypass authentication, dump collections, or circumvent tenant bounds. Verify input sanitization, schema validation (e.g. Zod/Joi), or explicit casting before data reaches database drivers.
+
+**ORM mass-assignment and relational connect overreach**
+Unfiltered request objects passed directly into ORM mutations (`create`, `update`, `upsert`) allow callers to set sensitive model attributes (`role`, `is_admin`, `verified`) or re-parent relationships across tenants using relational connection directives (e.g. nested `connect` queries). Confirm whether input fields are explicitly allowlisted at the mutation boundary and whether related resource IDs are authorized within the caller's tenant scope.
+
+**Row-level security policy and role bypass**
+Database-level row security (Postgres RLS, Supabase policies) is circumvented by elevated service credentials (`service_role`), tables where RLS was never enabled (`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`), or policies that define `USING` clauses for reads but omit `WITH CHECK` clauses on mutations. Verify that `SECURITY DEFINER` functions explicitly enforce an empty search path (`SET search_path = ''`) to prevent search-path hijacking by lower-privilege users.
 
 ## Derived-data and disclosure attack classes (subagent_type: `general`)
 
