@@ -439,6 +439,14 @@ test("preserves candidate provenance when reassignment must be deferred", () => 
   assert.deepEqual(errorsFor([deferred]), []);
 });
 
+test("accepts an unassigned deferred unit after a malformed hunter return", () => {
+  const deferred = unit({
+    status: "deferred",
+    unresolved: ["malformed_hunter_return"],
+  });
+  assert.deepEqual(errorsFor([deferred]), []);
+});
+
 test("rejects reassignment owner reuse and evidence mixing", () => {
   const reusedOwner = unit({
     attempts: [archivedAttempt()],
