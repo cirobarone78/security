@@ -76,6 +76,26 @@ function cliOutput(result) {
   return `${result.stdout}${result.stderr}`;
 }
 
+function runCliWithArtifacts(contents, artifacts, options = {}) {
+  const { nodeArgs = [], timeout = CLI_TIMEOUT_MS } = options;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-"));
+  const ledgerPath = path.join(directory, "coverage-ledger.json");
+  try {
+    fs.writeFileSync(ledgerPath, contents);
+    for (const [relativePath, fileContents] of Object.entries(artifacts)) {
+      const fullPath = path.join(directory, relativePath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, fileContents);
+    }
+    return spawnSync(process.execPath, [...nodeArgs, validatorPath, ledgerPath], {
+      encoding: "utf8",
+      timeout,
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 const TERMINAL_CONTROL_PAYLOAD = "\u001b\u0007\u0085\u202e";
 const TERMINAL_CONTROL_BYTES = [
   Buffer.from([0x1b]),
@@ -737,4 +757,98 @@ test("accepts a canonical ID derived from near-maximum multibyte references", ()
     const result = runCli(JSON.stringify([value]));
     assert.equal(result.status, 0, cliOutput(result));
   }
+});
+
+test("rejects a local check whose artifact does not exist on disk", { skip: !HAS_SAFE_INPUT_OPEN }, () => {
+  const local = unit({
+    status: "covered",
+    agent_id: "hunter-1",
+    reviewed_paths: ["src/router.ts"],
+    local_checks: [localCheck()],
+  });
+  const result = runCli(JSON.stringify([local]));
+  const output = cliOutput(result);
+  assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
+  assert.equal(result.status, 1, output);
+  assert.match(output, /local_checks\[0\]\.artifact: local check artifact does not exist/);
+});
+
+test("accepts a local check whose artifact is a real file under the owning agent's artifacts directory", { skip: !HAS_SAFE_INPUT_OPEN }, () => {
+  const local = unit({
+    status: "covered",
+    agent_id: "hunter-1",
+    reviewed_paths: ["src/router.ts"],
+    local_checks: [localCheck()],
+  });
+  const result = runCliWithArtifacts(JSON.stringify([local]), {
+    "agents/hunter-1/artifacts/result.txt": "the bounded fixture accepted the other owner's object",
+  });
+  assert.equal(result.status, 0, cliOutput(result));
+});
+
+test("rejects a local check whose artifact is a directory, not a regular file", { skip: !HAS_SAFE_INPUT_OPEN }, () => {
+  const local = unit({
+    status: "covered",
+    agent_id: "hunter-1",
+    reviewed_paths: ["src/router.ts"],
+    local_checks: [localCheck()],
+  });
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-"));
+  const ledgerPath = path.join(directory, "coverage-ledger.json");
+  try {
+    fs.writeFileSync(ledgerPath, JSON.stringify([local]));
+    fs.mkdirSync(path.join(directory, "agents/hunter-1/artifacts/result.txt"), { recursive: true });
+    const result = spawnSync(process.execPath, [validatorPath, ledgerPath], {
+      encoding: "utf8",
+      timeout: CLI_TIMEOUT_MS,
+    });
+    const output = cliOutput(result);
+    assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
+    assert.equal(result.status, 1, output);
+    assert.match(output, /local_checks\[0\]\.artifact: local check artifact must be a regular file/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects a symlink artifact", { skip: process.platform === "win32" || !HAS_SAFE_INPUT_OPEN }, () => {
+  const local = unit({
+    status: "covered",
+    agent_id: "hunter-1",
+    reviewed_paths: ["src/router.ts"],
+    local_checks: [localCheck()],
+  });
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-"));
+  const ledgerPath = path.join(directory, "coverage-ledger.json");
+  try {
+    fs.writeFileSync(ledgerPath, JSON.stringify([local]));
+    const outsideTarget = path.join(directory, "outside.txt");
+    fs.writeFileSync(outsideTarget, "real content lives outside the artifacts directory");
+    fs.mkdirSync(path.join(directory, "agents/hunter-1/artifacts"), { recursive: true });
+    fs.symlinkSync(outsideTarget, path.join(directory, "agents/hunter-1/artifacts/result.txt"));
+    const result = spawnSync(process.execPath, [validatorPath, ledgerPath], {
+      encoding: "utf8",
+      timeout: CLI_TIMEOUT_MS,
+    });
+    const output = cliOutput(result);
+    assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
+    assert.equal(result.status, 1, output);
+    assert.match(output, /local_checks\[0\]\.artifact: local check artifact must not be a symlink/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("still applies schema-only artifact validation when called directly without a base directory", () => {
+  // validateDocument has no notion of "where the ledger file lives" unless a
+  // caller (the CLI) supplies one, so direct callers/tests keep today's
+  // shape-only behavior: missing files are not flagged, but the path must
+  // still be owned by the checking agent.
+  const local = unit({
+    status: "covered",
+    agent_id: "hunter-1",
+    reviewed_paths: ["src/router.ts"],
+    local_checks: [localCheck()],
+  });
+  assert.deepEqual(errorsFor([local]), []);
 });
