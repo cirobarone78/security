@@ -12,6 +12,8 @@ Use `confirmed` only when source evidence and bounded validation establish the f
 >
 > **HTTP, web, and identity targets** (ordinary web apps, APIs, reverse proxies, CDNs, gateways, custom HTTP parsers, sessions, CSRF, JWT, OAuth/OIDC, SAML, MFA, passkeys, account recovery/linking, API keys, or mTLS): use [WEB-PROTOCOL-AND-AUTH.md](WEB-PROTOCOL-AND-AUTH.md).
 >
+> **Cryptography and key-management targets** (encryption, signatures/JWT verification, security-token randomness, nonce/IV allocation, password verifiers, TLS peer validation, or secret/key lifecycles): use [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md).
+>
 > **Client-side and browser targets** (SPAs, browser extensions, embedded webviews, service workers, browser storage, cross-window messaging, CORS, WebSockets, or DOM rendering): use [CLIENT-SIDE.md](CLIENT-SIDE.md).
 >
 > **Supply-chain and release targets** (dependency resolution, generated inputs, CI, release/signing/promotion, updates, plugins, or extensions): use [SUPPLY-CHAIN-AND-RELEASE.md](SUPPLY-CHAIN-AND-RELEASE.md).
@@ -54,6 +56,7 @@ For complex access models, split into separate agents for auth bypass vs authori
 - Race conditions on file operations (TOCTOU between check and use)
 
 **Cryptography and secrets** (subagent_type: `general`)
+Use [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md) for detailed implementation and key-lifecycle review; retain this ordinary block with the selected companion classes in the ledger.
 - Weak randomness for security-critical values (tokens, keys, nonces)
 - Hardcoded secrets, secrets in logs, error messages, URLs, or client-visible responses
 - Broken key derivation, missing HMAC verification, nonce reuse
