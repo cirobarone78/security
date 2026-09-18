@@ -21,6 +21,13 @@ The verdicts are distinct: `confirmed` has a complete source trace and bounded o
 
 Multiple runs against the same repo are additive. The skill uses prior ledgers and findings to target gaps, revalidate changed source, and carry forward current-source evidence without treating stale or unresolved work as covered.
 
+## Coverage boundaries
+
+The skill audits source and locally available evidence; it does not query live advisory or CVE databases. Findings that depend on information outside the audit sandbox—such as vulnerabilities disclosed after the model's knowledge cutoff—remain `needs_validation` unless the relevant advisory data is supplied as local evidence. Pair this skill with a current dependency or advisory scanner when live CVE coverage is required.
+
+Its coverage ledger is security-focused rather than a guarantee of general program correctness. Domain-specific defects that do not map to a security boundary or attack class may not become hunting units. Use domain tests and specialist review alongside the audit when correctness beyond security is in scope.
+
+
 ## Files
 
 | File | Purpose |
