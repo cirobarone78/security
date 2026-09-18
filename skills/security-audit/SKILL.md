@@ -167,6 +167,8 @@ For each confirmed finding, identify the invariant the code must enforce and the
 
 ## Full audit workflow
 
+For cryptographic implementation and key-lifecycle boundaries, select [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md): encryption, randomness, nonce/IV handling, signatures/JWT, password hashing, TLS peer validation, and key storage/rotation. In guidance mode, read only relevant blocks. In full audit mode, include applicable classes in the coverage ledger using the companion-selection rules in [RECONNAISSANCE.md](RECONNAISSANCE.md).
+
 In full audit mode, follow all six phases in order:
 
 1. **Reconnaissance** — map the source, trust boundaries, local build paths, companion selections, prior evidence, and initial deterministic coverage ledger with [RECONNAISSANCE.md](RECONNAISSANCE.md).
