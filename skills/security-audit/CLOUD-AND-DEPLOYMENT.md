@@ -57,8 +57,12 @@ Development values, chart defaults, environment variables, command-line flags, f
 **Secret exposure across workload boundaries**
 Secrets enter logs, crash reports, process arguments, shared environment, broad volumes, build outputs, service discovery, or read APIs accessible to another workload or tenant. Check secret type and authority; a public endpoint or key ID is not a credential.
 
+Also select `CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Secret storage and KMS or HSM boundaries` from [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md) for key material, envelope encryption, purpose separation, and KMS/HSM operation semantics. This cloud class retains workload permissions, secret mounts, and effective infrastructure attachments. Absence of KMS/HSM alone does not establish exposure.
+
 **Credential renewal and outage fallback**
 Failure to mount, refresh, rotate, or revoke a workload credential causes stale credentials to remain active or an app to accept a less trusted identity mode. Review startup, readiness, reconnect, and cached-client behavior.
+
+For cryptographic key versions, permitted legacy uses, compromise revocation, and recoverable key copies, also select `CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Rotation, revocation, and key disposal` from [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md). Keep provider identity and rollout configuration in this cloud class.
 
 ## Managed storage, events, and edge attack classes (subagent_type: `general`)
 

@@ -12,6 +12,8 @@ Use `confirmed` only when source evidence and bounded validation establish the f
 >
 > **HTTP, web, and identity targets** (ordinary web apps, APIs, reverse proxies, CDNs, gateways, custom HTTP parsers, sessions, CSRF, JWT, OAuth/OIDC, SAML, MFA, passkeys, account recovery/linking, API keys, or mTLS): use [WEB-PROTOCOL-AND-AUTH.md](WEB-PROTOCOL-AND-AUTH.md).
 >
+> **Cryptography and key-management targets** (security-sensitive encryption, MACs/signatures, random credentials, nonces/IVs, password verifiers, JWT cryptography, TLS validation, or key storage/rotation/revocation): use [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md).
+>
 > **Client-side and browser targets** (SPAs, browser extensions, embedded webviews, service workers, browser storage, cross-window messaging, CORS, WebSockets, or DOM rendering): use [CLIENT-SIDE.md](CLIENT-SIDE.md).
 >
 > **Supply-chain and release targets** (dependency resolution, generated inputs, CI, release/signing/promotion, updates, plugins, or extensions): use [SUPPLY-CHAIN-AND-RELEASE.md](SUPPLY-CHAIN-AND-RELEASE.md).
@@ -54,6 +56,8 @@ For complex access models, split into separate agents for auth bypass vs authori
 - Race conditions on file operations (TOCTOU between check and use)
 
 **Cryptography and secrets** (subagent_type: `general`)
+Use [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md) for the applicable primitive, credential, transport, and key-lifecycle classes, together with its core discipline, universal moves, and validation rules. Select by the protected property and active source path; an MD5/SHA-1 occurrence or absence of KMS alone is not a finding. Keep this ordinary block in each applicable unit's `ordinary_attack_class_block` while recording the specialized class and required companion sections in `selected_companion_blocks`.
+
 - Weak randomness for security-critical values (tokens, keys, nonces)
 - Hardcoded secrets, secrets in logs, error messages, URLs, or client-visible responses
 - Broken key derivation, missing HMAC verification, nonce reuse

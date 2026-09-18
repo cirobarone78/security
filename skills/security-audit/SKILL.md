@@ -167,6 +167,8 @@ For each confirmed finding, identify the invariant the code must enforce and the
 
 ## Full audit workflow
 
+When source uses cryptography at a security boundary, select the relevant blocks from [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md): encryption and authentication primitives, randomness and nonces, password hashing, JWT signing/verification, TLS certificate validation, and key storage/rotation/revocation. Pair them with the ordinary `Cryptography and secrets` class and any applicable web or cloud companion blocks; record the exact selection in each coverage unit as defined in [RECONNAISSANCE.md](RECONNAISSANCE.md).
+
 In full audit mode, follow all six phases in order:
 
 1. **Reconnaissance** — map the source, trust boundaries, local build paths, companion selections, prior evidence, and initial deterministic coverage ledger with [RECONNAISSANCE.md](RECONNAISSANCE.md).
