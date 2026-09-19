@@ -51,6 +51,8 @@ First establish role. Authorization-server controls such as redirect allowlistin
 **JWT verification and claim binding**
 Check signature verification, server-pinned algorithm and key source, then `exp`, `nbf`, `aud`, and `iss`. Review `kid`, `jku`, and `x5u` as untrusted key selectors, duplicate/header normalization, and decode-without-verify paths. A valid token for another service is invalid here even when signed by a trusted issuer.
 
+Also select `CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#JWT algorithm and key selection` from [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md) for `alg=none`, symmetric/asymmetric algorithm confusion, key selection, and verification-failure examples. This web class owns token purpose, claim binding, and the resulting principal; the cryptography class owns the primitive and key acceptance boundary.
+
 **OAuth/OIDC request and callback binding**
 Validate exact `redirect_uri` ownership where the target is the authorization server; session-bound `state`; PKCE and authorization-code binding where applicable; ID-token issuer/audience/signature/nonce; and selected-IdP binding in multi-provider flows. Compare initial callback, retry, mobile/deep-link, and account-link routes.
 
@@ -84,6 +86,8 @@ Keys appear in client bundles, URLs, redirects, logs, error paths, build artifac
 
 **mTLS peer and application-identity confusion**
 A process trusts client-certificate identity headers from any network peer, verifies a chain but maps attacker-influenceable subject text to an account incorrectly, or accepts a certificate for the wrong trust domain, extended usage, audience, or validity policy. Where a trusted proxy terminates mTLS, verify only that proxy can connect, it removes incoming identity headers, and the backend binds the sanitized identity to the request.
+
+Also select `CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#TLS and certificate validation` from [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md) for cryptographic chain validation, destination identity, and the active TLS context. Keep certificate-to-principal mapping and trusted-proxy identity handling in this web class.
 
 **Certificate lifecycle fallback**
 Expired, revoked, missing, or renewal-failed certificates cause silent fallback to bearer-only or anonymous operation, or long-lived pooled connections retain authorization after revocation. Missing deployment revocation data makes the result `needs_validation`; an in-repo fail-open branch is source-confirmable.

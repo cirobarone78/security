@@ -38,6 +38,7 @@ Return trust boundaries and control locations with repository-relative file:line
 Inventory every source-visible place external or lower-trust input enters:
 - HTTP/browser, RPC/message/protocol, files/archive/document, CLI/env/config, plugins/dependencies/CI, cloud events/IAM selectors, model context/tool arguments, mobile/deep-link/webview, and local IPC.
 For each surface, follow major transformations, stored or derived copies, and security-relevant sinks. Record source-visible limits and parallel paths to the same effect.
+For cryptographic boundaries, map protected data and credentials to their primitive/mode, library and parameters, entropy or nonce source, key generation/derivation, verification point, storage, rotation/revocation, and disposal paths. Include concurrent workers, restart/restore behavior, and effective TLS configuration where source-visible; identify unavailable key-service or deployment facts explicitly.
 Return repository-relative paths and line numbers. Be complete, but do not execute or send inputs.
 ```
 
@@ -133,6 +134,34 @@ Each unit records:
 ```
 
 When `lifecycle` is material, add both `canonical_refs.lifecycle` and a human `lifecycle` field. `ordinary_attack_class_block` is null only when no ordinary block applies. The selected companion list includes each applicable class plus its companion `Core discipline`, `Universal moves`, and `Validation rules`; `excluded_blocks` records every considered but unselected block and the source fact that excludes it.
+
+For cryptographic surfaces, select [CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md](CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md). For example, an AES-GCM nonce-allocation unit uses this selection (a fragment of a unit, not a static ledger to copy into the repository):
+
+```json
+{
+  "canonical_refs": {
+    "surface": "src/vault.ts#encryptObject",
+    "boundary": "src/nonce.ts#reserveNonce",
+    "subsystem": "src/vault",
+    "attack_class": "CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Nonce and IV reuse"
+  },
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cryptography and secrets",
+  "selected_companion_blocks": [
+    "CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Core discipline",
+    "CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Nonce and IV reuse",
+    "CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Universal moves",
+    "CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Validation rules"
+  ],
+  "excluded_blocks": [
+    {
+      "block": "CRYPTOGRAPHY-AND-KEY-MANAGEMENT.md#Password hashing and migration",
+      "reason": "This unit uses a randomly generated data key and processes no passwords."
+    }
+  ]
+}
+```
+
+Replace illustrative source refs with the target's facts, derive the ID, and populate the remaining fields using the contract above. Seed separate units for other applicable classes such as authenticated encryption and key storage; this nonce unit alone does not cover them. Select web JWT/mTLS or cloud workload blocks when those boundaries also apply, including each companion's required sections. The parent copies the selected blocks, including their inline examples, into hunter prompts under `HUNTING.md`. Check each referenced class/heading against the Markdown text during selection and contribution review: the ledger validator checks structure and consistency, not whether referenced blocks exist.
 
 The parent may add bookkeeping fields but keeps the semantic fields above stable. In `prior_status`, `new` marks a surface first seen in this run when compatible prior ledgers exist; `none` marks a unit seeded when no compatible prior ledger is available. Prior `deferred`, `blocked`, `out_of_scope`, and changed-source units initialize as current `planned` work when now in scope. A prior same-source covered unit remains visible in the current ledger; assign changed source, important lifecycle paths, and exact conflicts first, then use the coverage critic to decide whether it needs another pass.
 
