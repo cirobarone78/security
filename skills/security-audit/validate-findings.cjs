@@ -50,6 +50,7 @@ const LIMITS = Object.freeze({
 const VISIBLE_CONTENT = /[^\p{White_Space}\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
 const PATH_FORBIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 const WINDOWS_RESERVED_COMPONENT = /^(?:con|prn|aux|nul|clock\$|conin\$|conout\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3])(?:\.|$)/iu;
+const FINGERPRINT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const UNSAFE_DIAGNOSTIC_CHARACTER = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu;
 const MAX_DIAGNOSTIC_STRING_LENGTH = 256;
@@ -494,15 +495,19 @@ function collectFindingSemanticErrors(findings) {
     const base = `$[${index}]`;
 
     if (hasOwn(finding, "fingerprint") && typeof finding.fingerprint === "string") {
-      if (fingerprints.has(finding.fingerprint)) {
-        errors.push(`${base}.fingerprint: duplicate of $[${fingerprints.get(finding.fingerprint)}].fingerprint`);
+      if (!FINGERPRINT_PATTERN.test(finding.fingerprint)) {
+        errors.push(`${base}.fingerprint: invalid fingerprint (must match [A-Za-z0-9][A-Za-z0-9._:/@+-]*)`);
       } else {
-        fingerprints.set(finding.fingerprint, index);
+        if (fingerprints.has(finding.fingerprint)) {
+          errors.push(`${base}.fingerprint: duplicate of $[${fingerprints.get(finding.fingerprint)}].fingerprint`);
+        } else {
+          fingerprints.set(finding.fingerprint, index);
+        }
+        if (previousFingerprint !== null && previousFingerprint > finding.fingerprint) {
+          errors.push(`${base}.fingerprint: findings must be sorted lexicographically`);
+        }
+        previousFingerprint = finding.fingerprint;
       }
-      if (previousFingerprint !== null && previousFingerprint > finding.fingerprint) {
-        errors.push(`${base}.fingerprint: findings must be sorted lexicographically`);
-      }
-      previousFingerprint = finding.fingerprint;
     }
 
     for (const field of ["trace", "evidence"]) {
@@ -757,6 +762,7 @@ function run(file) {
 }
 
 module.exports = {
+  FINGERPRINT_PATTERN,
   LIMITS,
   PATH_FORBIDDEN_CHARACTER,
   UNSAFE_DIAGNOSTIC_CHARACTER,
