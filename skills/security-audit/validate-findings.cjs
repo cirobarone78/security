@@ -46,6 +46,11 @@ const LIMITS = Object.freeze({
   canonicalKeyBytes: 1024 * 1024,
   uniqueSetBytes: 5 * 1024 * 1024,
   validationErrors: 100,
+  // Line numbers above this are not real source locations, and a consumer
+  // reading the report into a 32-bit integer cannot hold them. The schema only
+  // bounds `line` from below, and `Number.isInteger` is true for 1e21 and
+  // 1e308, which JSON re-serializes in exponential form.
+  sourceLine: 2147483647,
 });
 const VISIBLE_CONTENT = /[^\p{White_Space}\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u;
 const PATH_FORBIDDEN_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
@@ -509,8 +514,8 @@ function collectFindingSemanticErrors(findings) {
       if (!hasOwn(finding, field) || !Array.isArray(finding[field])) continue;
       finding[field].forEach((entry, entryIndex) => {
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
-        if (hasOwn(entry, "line") && (!Number.isInteger(entry.line) || entry.line < 1)) {
-          errors.push(`${base}.${field}[${entryIndex}].line: must be a positive integer`);
+        if (hasOwn(entry, "line") && (!Number.isInteger(entry.line) || entry.line < 1 || entry.line > LIMITS.sourceLine)) {
+          errors.push(`${base}.${field}[${entryIndex}].line: must be a positive integer no greater than ${LIMITS.sourceLine}`);
         }
         if (hasOwn(entry, "file") && !isSafeRelativeSourcePath(entry.file)) {
           errors.push(`${base}.${field}[${entryIndex}].file: must be a safe repository-relative source path`);

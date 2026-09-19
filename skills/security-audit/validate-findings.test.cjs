@@ -184,6 +184,33 @@ test("allows a one-line finding trace", () => {
   assert.deepEqual(errorsFor([finding]), []);
 });
 
+test("bounds source line numbers from above", () => {
+  // The schema only bounds `line` from below, and Number.isInteger is true for
+  // 1e21 and 1e308, so without an upper bound a finding can claim a line no
+  // file has and JSON re-serializes it in exponential form.
+  for (const line of [LIMITS.sourceLine + 1, Number.MAX_SAFE_INTEGER, 1e21, 1e308]) {
+    rejectMutation(confirmed, (finding) => { finding.trace[0].line = line; });
+    rejectMutation(confirmed, (finding) => { finding.evidence[0].line = line; });
+  }
+});
+
+test("allows source line numbers up to the limit", () => {
+  for (const line of [1, 2, LIMITS.sourceLine]) {
+    const finding = confirmed();
+    finding.trace[0].line = line;
+    finding.evidence[0].line = line;
+    assert.deepEqual(errorsFor([finding]), []);
+  }
+});
+
+test("a bounded line number survives a JSON round trip as an integer", () => {
+  const finding = confirmed();
+  finding.trace[0].line = LIMITS.sourceLine;
+  assert.deepEqual(errorsFor([finding]), []);
+  assert.equal(JSON.stringify(finding.trace[0].line), String(LIMITS.sourceLine));
+  assert.ok(!JSON.stringify(finding.trace[0].line).includes("e"));
+});
+
 test("rejects empty required content", () => {
   const cases = [
     [confirmed, (finding) => { finding.title = ""; }],
