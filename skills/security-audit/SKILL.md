@@ -147,6 +147,8 @@ Static analysis establishes the source path. Sandboxed local tests resolve behav
 
 Deployment controls, proxy behavior, provider settings, browser headers, identity policy, broker ACLs, packaging, and topology are real controls. If they are required and absent from the repository, do not assume either presence or absence. Use `needs_validation` with the exact missing fact and a safe owner-observed or local plan.
 
+Distinguish a control that prevents the attack from a configuration that merely leaves the defect inert today. When the defective code path exists and a supported, documented, or shipped option would make it reachable, the reachability is a deployment fact: use `needs_validation` naming that option, not a hardening note. A hardening note claims no supported configuration reaches the path, or that a visible control prevents it.
+
 ### Separate priority from certainty
 
 Only `confirmed` records receive severity. Likelihood and impact must reflect the demonstrated conditions and result; overall severity cannot exceed demonstrated impact. `needs_validation` means a specific source-grounded boundary hypothesis is blocked, not a low-confidence confirmed vulnerability, and it has no severity.
