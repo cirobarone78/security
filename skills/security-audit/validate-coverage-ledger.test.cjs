@@ -126,6 +126,214 @@ function archivedAttempt(overrides = {}) {
   return Object.assign(value, overrides);
 }
 
+function localLedger() {
+  return [unit({
+    status: "covered",
+    agent_id: "hunter-1",
+    reviewed_paths: ["src/router.ts"],
+    local_checks: [localCheck()],
+  })];
+}
+
+function withOutputDirectory(callback) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "coverage-artifacts-"));
+  try {
+    return callback(directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function writeArtifact(directory, artifact = "agents/hunter-1/artifacts/result.txt") {
+  const file = path.join(directory, artifact);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "Bounded fixture result.\n");
+  return file;
+}
+
+test("artifact-aware validation rejects absent evidence for every terminal state", () => {
+  withOutputDirectory((outputDir) => {
+    for (const status of ["covered", "blocked", "candidate"]) {
+      const ledger = localLedger();
+      ledger[0].status = status;
+      if (status === "blocked") ledger[0].unresolved = ["The integration fixture is unavailable."];
+      if (status === "candidate") ledger[0].result_fingerprints = ["missing-owner-check"];
+      assert.deepEqual(errorsFor(ledger), [], "the in-memory API remains structural by default");
+      assert.match(validateDocument(ledger, { outputDir }).join("\n"),
+        /\$\[0\]\.local_checks\[0\]\.artifact: local check artifact does not exist/);
+    }
+  });
+});
+
+test("artifact-aware validation accepts retained files and independently owned checks", () => {
+  withOutputDirectory((outputDir) => {
+    const ledger = localLedger();
+    ledger[0].local_checks.push(localCheck("verifier-1", {
+      artifact: "agents/verifier-1/artifacts/nested/证据.txt",
+    }));
+    for (const check of ledger[0].local_checks) writeArtifact(outputDir, check.artifact);
+    assert.deepEqual(validateDocument(ledger, { outputDir }), []);
+    assert.deepEqual(validateDocument([unit()], { outputDir }), []);
+  });
+});
+
+test("artifact-aware validation checks archived evidence even when live work is deferred", () => {
+  withOutputDirectory((outputDir) => {
+    const ledger = [unit({
+      wave: 2,
+      status: "deferred",
+      unresolved: ["No budget for another assignment."],
+      attempts: [archivedAttempt({ local_checks: [localCheck()] })],
+    })];
+    assert.match(validateDocument(ledger, { outputDir }).join("\n"),
+      /\$\[0\]\.attempts\[0\]\.local_checks\[0\]\.artifact: local check artifact does not exist/);
+    writeArtifact(outputDir);
+    assert.deepEqual(validateDocument(ledger, { outputDir }), []);
+  });
+});
+
+test("artifact-aware validation rejects directories and non-directory parents", () => {
+  withOutputDirectory((outputDir) => {
+    const artifact = path.join(outputDir, localLedger()[0].local_checks[0].artifact);
+    fs.mkdirSync(artifact, { recursive: true });
+    assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /artifact must be a regular file/);
+  });
+  withOutputDirectory((outputDir) => {
+    fs.writeFileSync(path.join(outputDir, "agents"), "not a directory");
+    assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /artifact parent must be a directory/);
+  });
+});
+
+test("artifact-aware validation rejects hard-linked evidence", () => {
+  withOutputDirectory((outputDir) => {
+    const file = writeArtifact(outputDir);
+    fs.linkSync(file, path.join(outputDir, "alias.txt"));
+    assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /artifact must not have multiple hard links/);
+  });
+});
+
+test("artifact-aware validation rejects a junction or symlink at each parent level", () => {
+  for (const relative of ["agents", "agents/hunter-1", "agents/hunter-1/artifacts"]) {
+    withOutputDirectory((outputDir) => {
+      const target = path.join(outputDir, "other-owner");
+      fs.mkdirSync(target);
+      const link = path.join(outputDir, relative);
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
+      assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /artifact path must not contain symlinks/);
+    });
+  }
+});
+
+test("artifact-aware validation rejects a symlink leaf including dangling links", { skip: process.platform === "win32" }, () => {
+  withOutputDirectory((outputDir) => {
+    const file = writeArtifact(outputDir);
+    for (const [name, target] of [["linked.txt", file], ["dangling.txt", path.join(outputDir, "missing")]]) {
+      const ledger = localLedger();
+      ledger[0].local_checks[0].artifact = `agents/hunter-1/artifacts/${name}`;
+      fs.symlinkSync(target, path.join(outputDir, ledger[0].local_checks[0].artifact));
+      assert.match(validateDocument(ledger, { outputDir }).join("\n"), /artifact path must not contain symlinks/);
+    }
+  });
+});
+
+test("artifact-aware validation rejects a FIFO without opening it", { skip: process.platform === "win32" }, () => {
+  withOutputDirectory((outputDir) => {
+    const file = path.join(outputDir, localLedger()[0].local_checks[0].artifact);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const result = spawnSync("mkfifo", [file], { encoding: "utf8", timeout: CLI_TIMEOUT_MS });
+    assert.equal(result.status, 0, cliOutput(result));
+    assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /artifact must be a regular file/);
+  });
+});
+
+test("artifact-aware validation rejects an invalid or symlinked output root", () => {
+  withOutputDirectory((directory) => {
+    const file = path.join(directory, "file");
+    fs.writeFileSync(file, "not a directory");
+    for (const outputDir of ["", null, 42, file, path.join(directory, "missing")]) {
+      assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /output directory/);
+    }
+    const target = path.join(directory, "real");
+    const outputDir = path.join(directory, "alias");
+    fs.mkdirSync(target);
+    fs.symlinkSync(target, outputDir, process.platform === "win32" ? "junction" : "dir");
+    assert.match(validateDocument(localLedger(), { outputDir }).join("\n"), /output directory must not be a symlink/);
+  });
+});
+
+test("artifact-aware validation keeps structural errors ahead of filesystem checks", () => {
+  const ledger = localLedger();
+  ledger[0].local_checks[0].artifact = "agents/another-owner/artifacts/result.txt";
+  assert.deepEqual(validateDocument(ledger, { outputDir: "missing-output" }), errorsFor(ledger));
+});
+
+test("artifact-aware validation caps missing-artifact diagnostics", () => {
+  withOutputDirectory((outputDir) => {
+    const ledger = localLedger();
+    ledger[0].local_checks = Array.from({ length: LIMITS.validationErrors + 1 }, (_, index) =>
+      localCheck("hunter-1", { artifact: `agents/hunter-1/artifacts/missing-${index}.txt` }));
+    const errors = validateDocument(ledger, { outputDir });
+    assert.equal(errors.length, LIMITS.validationErrors);
+    assert(errors.every((error) => error.includes("artifact does not exist")));
+  });
+});
+
+test("CLI fails closed when safe input opening is unavailable", { skip: HAS_SAFE_INPUT_OPEN }, () => {
+  const result = runCli("[]");
+  assert.equal(result.status, 1, cliOutput(result));
+  assert.match(result.stderr, /OS no-follow and nonblocking input protection is unavailable/);
+  assert.doesNotMatch(cliOutput(result), /PASS:|\n\s+at /);
+});
+
+test("CLI rejects malformed output-directory arguments", () => {
+  for (const args of [[], ["ledger.json", "--output-dir"], ["ledger.json", "--output-dir", ""],
+    ["ledger.json", "--unknown", "run"], ["ledger.json", "extra"], ["ledger.json", "--output-dir", "run", "extra"]]) {
+    const result = spawnSync(process.execPath, [validatorPath, ...args], { encoding: "utf8", timeout: CLI_TIMEOUT_MS });
+    assert.equal(result.status, 1, cliOutput(result));
+    assert.match(result.stderr, /Usage:.*\[--output-dir <run-dir>\]/);
+    assert.doesNotMatch(cliOutput(result), /PASS:|\n\s+at /);
+  }
+});
+
+test("CLI checks artifacts beside the ledger regardless of the working directory", { skip: !HAS_SAFE_INPUT_OPEN }, () => {
+  withOutputDirectory((outputDir) => {
+    const ledger = localLedger();
+    const ledgerPath = path.join(outputDir, "coverage-ledger.json");
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger));
+    function run() {
+      return spawnSync(process.execPath, [validatorPath, ledgerPath], {
+        cwd: __dirname, encoding: "utf8", timeout: CLI_TIMEOUT_MS,
+      });
+    }
+    const missing = run();
+    assert.equal(missing.status, 1, cliOutput(missing));
+    assert.match(missing.stderr, /artifact does not exist/);
+    writeArtifact(outputDir);
+    const valid = run();
+    assert.equal(valid.status, 0, cliOutput(valid));
+    assert.match(valid.stdout, /PASS: 1 coverage units valid/);
+  });
+});
+
+test("CLI supports an explicit retained output directory", { skip: !HAS_SAFE_INPUT_OPEN }, () => {
+  withOutputDirectory((directory) => {
+    const outputDir = path.join(directory, "run");
+    const ledgerPath = path.join(directory, "exported-ledger.json");
+    fs.writeFileSync(ledgerPath, JSON.stringify(localLedger()));
+    writeArtifact(outputDir);
+    const valid = spawnSync(process.execPath, [validatorPath, ledgerPath, "--output-dir", outputDir], {
+      encoding: "utf8", timeout: CLI_TIMEOUT_MS,
+    });
+    assert.equal(valid.status, 0, cliOutput(valid));
+    const missing = spawnSync(process.execPath, [validatorPath, ledgerPath], {
+      encoding: "utf8", timeout: CLI_TIMEOUT_MS,
+    });
+    assert.equal(missing.status, 1, cliOutput(missing));
+    assert.match(missing.stderr, /artifact does not exist/);
+  });
+});
+
 test("accepts an empty ledger and complete units", () => {
   assert.deepEqual(errorsFor([]), []);
   assert.deepEqual(errorsFor([unit()]), []);

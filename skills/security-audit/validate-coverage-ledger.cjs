@@ -2,7 +2,7 @@
 
 /**
  * Validates coverage-ledger.json and its canonical coverage IDs.
- * Usage: node validate-coverage-ledger.cjs <path-to-coverage-ledger.json>
+ * Usage: node validate-coverage-ledger.cjs <path-to-coverage-ledger.json> [--output-dir <run-dir>]
  */
 
 const fs = require("node:fs");
@@ -758,7 +758,87 @@ function readFileWithinLimit(file) {
   }
 }
 
-function validateDocument(ledger) {
+// Only call after structural validation. The output tree is parent-owned and
+// must remain stable during this metadata-only check. This is not the sandbox's
+// race-safe artifact-promotion boundary; it never opens or reads artifact data.
+function collectArtifactErrors(ledger, outputDir) {
+  const errors = createErrorList();
+  if (typeof outputDir !== "string" || outputDir.length === 0) {
+    errors.push("$: output directory must be a non-empty path");
+    return errors;
+  }
+
+  let root;
+  try {
+    root = path.resolve(outputDir);
+    const stat = fs.lstatSync(root);
+    if (stat.isSymbolicLink()) {
+      errors.push("$: output directory must not be a symlink");
+    } else if (!stat.isDirectory()) {
+      errors.push("$: output directory must be a directory");
+    } else {
+      // Resolve platform aliases above the selected root once, then inspect
+      // every component below it without following a symlink or junction.
+      root = fs.realpathSync(root);
+    }
+  } catch {
+    errors.push("$: output directory could not be inspected");
+  }
+  if (errors.length > 0) return errors;
+
+  function checkArtifact(artifact, location) {
+    let current = root;
+    const components = artifact.split("/");
+    for (let index = 0; index < components.length; index++) {
+      current = path.join(current, components[index]);
+      let stat;
+      try {
+        stat = fs.lstatSync(current);
+      } catch (error) {
+        const reason = error && error.code === "ENOENT"
+          ? "local check artifact does not exist"
+          : "local check artifact could not be inspected";
+        errors.push(`${location}: ${reason}`);
+        return;
+      }
+      if (stat.isSymbolicLink()) {
+        errors.push(`${location}: artifact path must not contain symlinks`);
+        return;
+      }
+      if (index < components.length - 1) {
+        if (!stat.isDirectory()) {
+          errors.push(`${location}: artifact parent must be a directory`);
+          return;
+        }
+      } else if (!stat.isFile()) {
+        errors.push(`${location}: artifact must be a regular file`);
+      } else if (stat.nlink !== 1) {
+        errors.push(`${location}: artifact must not have multiple hard links`);
+      }
+    }
+  }
+
+  function checkRecord(record, location) {
+    for (let index = 0; index < record.local_checks.length; index++) {
+      if (errors.length >= LIMITS.validationErrors) return;
+      const check = record.local_checks[index];
+      if (check.method === "local") {
+        checkArtifact(check.artifact, `${location}.local_checks[${index}].artifact`);
+      }
+    }
+  }
+
+  for (let index = 0; index < ledger.length && errors.length < LIMITS.validationErrors; index++) {
+    const unit = ledger[index];
+    checkRecord(unit, `$[${index}]`);
+    for (let attempt = 0; attempt < unit.attempts.length && errors.length < LIMITS.validationErrors; attempt++) {
+      checkRecord(unit.attempts[attempt], `$[${index}].attempts[${attempt}]`);
+    }
+  }
+  return errors;
+}
+
+function validateDocument(ledger, options = {}) {
   const errors = createErrorList();
   if (!Array.isArray(ledger)) {
     errors.push("$: expected a top-level array");
@@ -802,12 +882,17 @@ function validateDocument(ledger) {
     }
     previousId = unit.coverage_id;
   }
+  if (errors.length === 0 && hasOwn(options, "outputDir")) {
+    errors.push(...collectArtifactErrors(ledger, options.outputDir));
+  }
   return errors;
 }
 
-function run(file) {
-  if (!file) {
-    console.error("Usage: node validate-coverage-ledger.cjs <path-to-coverage-ledger.json>");
+function run(args) {
+  const [file, flag, outputDir] = args;
+  if (!file || file.startsWith("--") ||
+      (args.length !== 1 && (args.length !== 3 || flag !== "--output-dir" || !outputDir || outputDir.startsWith("--")))) {
+    console.error("Usage: node validate-coverage-ledger.cjs <path-to-coverage-ledger.json> [--output-dir <run-dir>]");
     return 1;
   }
 
@@ -837,7 +922,7 @@ function run(file) {
 
   let errors;
   try {
-    errors = validateDocument(ledger);
+    errors = validateDocument(ledger, { outputDir: outputDir || path.dirname(path.resolve(file)) });
   } catch {
     console.error("Failed to validate coverage ledger: unexpected validation error");
     return 1;
@@ -869,4 +954,4 @@ module.exports = {
   validateDocument,
 };
 
-if (require.main === module) process.exit(run(process.argv[2]));
+if (require.main === module) process.exit(run(process.argv.slice(2)));
