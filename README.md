@@ -15,7 +15,7 @@ The skill runs a structured audit in six phases:
 5. **Independent record verification** -- fresh agents verify final source claims. Material replacements receive another independent verifier.
 6. **Target-neutral reporting** -- derive `REPORT.md`, `FINDINGS-DETAIL.md`, and `NEEDS-VALIDATION.md` from the verified records and coverage ledger.
 
-The parent runs `validate-coverage-ledger.cjs` after creating the ledger and after each later ledger update. It runs `validate-findings.cjs` in Phase 4 and again after every Phase 5 replacement.
+The parent runs `validate-coverage-ledger.cjs` after creating the ledger and after each later ledger update. The coverage CLI also checks retained local-check artifacts, including archived attempts, relative to the ledger's directory. It runs `validate-findings.cjs` in Phase 4 and again after every Phase 5 replacement.
 
 The verdicts are distinct: `confirmed` has a complete source trace and bounded observed result, `needs_validation` has an exact unresolved fact and no severity, and `rejected` records a disproved candidate.
 
@@ -86,8 +86,26 @@ The skill activates automatically when the request matches its trigger (security
 ## Requirements
 
 - A coding agent with a model that supports tool use and parallel sub-agents
-- Node.js for the zero-dependency findings and coverage-ledger validators
+- Node.js for the zero-dependency findings and coverage-ledger validators. Their file-reading CLIs require OS support for `O_NOFOLLOW` and `O_NONBLOCK` (for example, Linux or macOS). Native Windows lacks these protections in Node.js, so the CLIs fail closed; use Node.js inside Linux/WSL for full audit validation. The in-memory validation APIs and platform-independent tests can run on Windows.
 - An OS-enforced sandbox for target-controlled builds, tests, processes, browsers, emulators, fuzzers, and fixtures. It must disable external networking, use a sanitized allowlisted environment, enforce resource limits, and allow writes only to assigned scratch paths. Without these controls, the workflow keeps the lead as `needs_validation` instead of executing target code.
+
+## Validator development
+
+Run the zero-dependency regression suite from the repository root:
+
+```sh
+node --test skills/security-audit/validate-findings.test.cjs skills/security-audit/validate-coverage-ledger.test.cjs
+```
+
+CI runs the suite on Linux, macOS, and Windows with Node.js 22 and 24. Tests that need protected file opening are skipped when those OS capabilities are absent, and separate tests verify that the CLIs reject input on those platforms.
+
+The coverage CLI requires each `method: "local"` artifact in live checks and archived attempts to exist as a regular, single-link file under the check owner's artifacts directory. It rejects missing files, symlinks (including parent directories), and special files without reading artifact contents. If the ledger is stored outside its run directory, specify the retained output root:
+
+```sh
+node skills/security-audit/validate-coverage-ledger.cjs /path/to/exported-ledger.json --output-dir /path/to/run
+```
+
+The selected output root and its ancestors must be trusted, and the retained tree must remain parent-owned and stable during validation. These metadata checks do not replace sandbox isolation, race-safe artifact promotion, or independent verification of the evidence's contents. When calling the coverage validator as a library, `validateDocument(ledger)` checks structure only; pass `validateDocument(ledger, { outputDir })` to also check retained artifacts.
 
 ## Design principles
 

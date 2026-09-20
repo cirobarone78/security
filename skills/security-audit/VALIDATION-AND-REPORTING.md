@@ -115,7 +115,7 @@ node <skill-dir>/validate-findings.cjs <output-dir>/findings.json
 node <skill-dir>/validate-coverage-ledger.cjs <output-dir>/coverage-ledger.json
 ```
 
-Fix every structural and semantic error before continuing. The findings validator rejects input beyond 5 MiB, 1,000 top-level findings, or 64 nesting levels, and caps reported error output at 100 messages. Validator success proves format and ledger consistency only.
+Fix every structural, semantic, and missing-artifact error before continuing. The findings validator rejects input beyond 5 MiB, 1,000 top-level findings, or 64 nesting levels, and caps reported error output at 100 messages. The coverage CLI checks retained artifacts for both live and archived local checks, using the ledger's directory as the output root unless `--output-dir <output-dir>` is supplied. Validator success proves format, ledger consistency, and retained-file presence/type only; it does not prove the claimed source behavior or artifact contents.
 
 ### Phase 5: Verify the final records with fresh eyes
 
