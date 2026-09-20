@@ -92,4 +92,4 @@ Linux 测试使用官方镜像 `node@sha256:ebfe2f90462722a7a4de65e91990e97fe0d4
 
 ## 提交范围
 
-在 `fix/retained-artifact-validation` 分支完成本地 Git 提交，包含实现、回归测试、CI 和本方案。尚未推送远程或创建上游 PR；后续提交 PR 时可直接使用本文的问题、行为变化及验证记录撰写描述。
+修复分支为 `fix/retained-artifact-validation`，包含实现、回归测试、CI 和本方案。拉取请求的目标为 `cloudflare/security-audit-skill` 的 `main` 分支，关联 Issue #21。本文记录本地实施和验证结果；上游审阅结果、远程 CI 状态和合并状态以 GitHub 拉取请求页面为准。
