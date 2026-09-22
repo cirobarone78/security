@@ -718,22 +718,51 @@ function collectUnitErrors(unit, index) {
   return errors;
 }
 
-function readFileWithinLimit(file) {
+function openInputIdentity(file) {
   const noFollow = fs.constants.O_NOFOLLOW;
   const nonBlock = fs.constants.O_NONBLOCK;
-  if (!Number.isInteger(noFollow) || noFollow === 0 || !Number.isInteger(nonBlock) || nonBlock === 0) {
-    // Node exposes no race-safe fallback on these platforms, so reject all inputs.
+  if (Number.isInteger(noFollow) && noFollow !== 0 && Number.isInteger(nonBlock) && nonBlock !== 0) {
+    try {
+      return { descriptor: fs.openSync(file, fs.constants.O_RDONLY | noFollow | nonBlock), identity: null };
+    } catch (error) {
+      if (error && (error.code === "ELOOP" || error.code === "EMLINK")) {
+        throw new SafeInputError("input must not be a symlink");
+      }
+      throw error;
+    }
+  }
+  // Windows exposes neither flag. Reject reparse points before opening, then
+  // re-verify the descriptor identity so a swapped path cannot be read.
+  if (process.platform !== "win32") {
     throw new SafeInputError("OS no-follow and nonblocking input protection is unavailable");
   }
-
-  let descriptor;
-  try {
-    descriptor = fs.openSync(file, fs.constants.O_RDONLY | noFollow | nonBlock);
-  } catch (error) {
-    if (error && (error.code === "ELOOP" || error.code === "EMLINK")) throw new SafeInputError("input must not be a symlink");
-    throw error;
+  const before = fs.lstatSync(file, { bigint: true });
+  if (before.isSymbolicLink()) {
+    throw new SafeInputError("input must not be a symlink");
   }
+  if (!before.isFile()) {
+    throw new SafeInputError("input must be a regular file");
+  }
+  if (before.ino === 0n) {
+    throw new SafeInputError("OS file identity check is unavailable");
+  }
+  const descriptor = fs.openSync(file, fs.constants.O_RDONLY);
+  return { descriptor, identity: { ino: before.ino, dev: before.dev } };
+}
+
+function assertInputIdentity(descriptor, identity) {
+  if (identity === null) return;
+  const after = fs.fstatSync(descriptor, { bigint: true });
+  if (after.ino !== identity.ino || after.dev !== identity.dev) {
+    throw new SafeInputError("input changed between check and open");
+  }
+}
+
+function readFileWithinLimit(file) {
+  const opened = openInputIdentity(file);
+  const descriptor = opened.descriptor;
   try {
+    assertInputIdentity(descriptor, opened.identity);
     const stat = fs.fstatSync(descriptor);
     if (!stat.isFile()) throw new SafeInputError("input must be a regular file");
     if (stat.size > MAX_INPUT_BYTES) throw new SafeInputError(`input exceeds ${MAX_INPUT_BYTES} byte limit`);
