@@ -2,7 +2,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
+const net = require("node:net");
 const test = require("node:test");
 const schema = require("./report-schema.json");
 const {
@@ -15,10 +16,12 @@ const {
 const validatorPath = path.join(__dirname, "validate-findings.cjs");
 const CLI_TIMEOUT_MS = 5000;
 const HOSTILE_CLI_TIMEOUT_MS = 15000;
-const HAS_SAFE_INPUT_OPEN = Number.isInteger(fs.constants.O_NOFOLLOW) &&
+// True wherever the validator can safely open inputs: the POSIX safe open, or
+// the Windows fallback (symlink/junction rejection plus identity comparison).
+const HAS_SAFE_INPUT_OPEN = (Number.isInteger(fs.constants.O_NOFOLLOW) &&
   fs.constants.O_NOFOLLOW !== 0 &&
   Number.isInteger(fs.constants.O_NONBLOCK) &&
-  fs.constants.O_NONBLOCK !== 0;
+  fs.constants.O_NONBLOCK !== 0) || process.platform === "win32";
 const TERMINAL_CONTROL_PAYLOAD = "\u001b\u0007\u0085\u202e\u034f\ufe0f";
 const TERMINAL_CONTROL_BYTES = [
   Buffer.from([0x1b]),
@@ -648,5 +651,51 @@ test("keeps shared helpers aligned with the coverage-ledger validator", () => {
       ledgerModule.hasVisibleProse(value),
       `prose verdict diverges for ${JSON.stringify(value)}`,
     );
+  }
+});
+
+test("win32: rejects an NTFS junction as the final component", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-findings-junction-"));
+  try {
+    const target = path.join(directory, "target");
+    fs.mkdirSync(target);
+    const junction = path.join(directory, "junction");
+    execFileSync("cmd.exe", ["/d", "/c", "mklink", "/J", junction, target], { stdio: "pipe" });
+    const result = spawnSync(process.execPath, [validatorPath, junction], { encoding: "utf8", timeout: HOSTILE_CLI_TIMEOUT_MS });
+    assert.equal(result.status, 1);
+    assert.match(cliOutput(result), /input must not be a symlink/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("win32: traverses an NTFS junction as an intermediate component", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-findings-junction-"));
+  try {
+    const target = path.join(directory, "target");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "findings.json"), JSON.stringify([confirmed()]));
+    const junction = path.join(directory, "junction");
+    execFileSync("cmd.exe", ["/d", "/c", "mklink", "/J", junction, target], { stdio: "pipe" });
+    // POSIX O_NOFOLLOW also protects only the final component, so traversal
+    // through an intermediate junction stays allowed; a clean exit proves the
+    // open itself succeeded.
+    const result = spawnSync(process.execPath, [validatorPath, path.join(junction, "findings.json")], { encoding: "utf8", timeout: CLI_TIMEOUT_MS });
+    assert.equal(result.status, 0, cliOutput(result));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("win32: rejects a named pipe without hanging", { skip: process.platform !== "win32" }, async () => {
+  const pipeName = `\\\\.\\pipe\\validate-findings-${process.pid}-${Date.now()}`;
+  const server = net.createServer(() => {});
+  await new Promise((resolve) => server.listen(pipeName, resolve));
+  try {
+    const result = spawnSync(process.execPath, [validatorPath, pipeName], { encoding: "utf8", timeout: HOSTILE_CLI_TIMEOUT_MS });
+    assert.ok(!result.error, "the CLI must reject a named pipe instead of hanging");
+    assert.equal(result.status, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });

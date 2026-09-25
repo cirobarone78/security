@@ -2,7 +2,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
+const net = require("node:net");
 const test = require("node:test");
 const {
   LIMITS,
@@ -11,16 +12,26 @@ const {
   isSafeAgentId,
   isSafeRelativePath,
   preflightJsonText,
+  readFileWithinLimit,
   validateDocument,
 } = require("./validate-coverage-ledger.cjs");
 
 const validatorPath = path.join(__dirname, "validate-coverage-ledger.cjs");
 const CLI_TIMEOUT_MS = 5000;
 const HOSTILE_CLI_TIMEOUT_MS = 15000;
-const HAS_SAFE_INPUT_OPEN = Number.isInteger(fs.constants.O_NOFOLLOW) &&
+// True wherever the validator can safely open inputs: the POSIX safe open, or
+// the Windows fallback (symlink/junction rejection plus identity comparison).
+const HAS_SAFE_INPUT_OPEN = (Number.isInteger(fs.constants.O_NOFOLLOW) &&
   fs.constants.O_NOFOLLOW !== 0 &&
   Number.isInteger(fs.constants.O_NONBLOCK) &&
-  fs.constants.O_NONBLOCK !== 0;
+  fs.constants.O_NONBLOCK !== 0) || process.platform === "win32";
+// True on platforms that take the fallback input path because the POSIX safe
+// open does not exist there. The constants object is not writable, so tests
+// cannot force the fallback anywhere it does not run naturally.
+const HAS_INPUT_FALLBACK = !Number.isInteger(fs.constants.O_NOFOLLOW) ||
+  fs.constants.O_NOFOLLOW === 0 ||
+  !Number.isInteger(fs.constants.O_NONBLOCK) ||
+  fs.constants.O_NONBLOCK === 0;
 
 function unit(overrides = {}) {
   const canonicalRefs = overrides.canonical_refs || {
@@ -736,5 +747,125 @@ test("accepts a canonical ID derived from near-maximum multibyte references", ()
   if (HAS_SAFE_INPUT_OPEN) {
     const result = runCli(JSON.stringify([value]));
     assert.equal(result.status, 0, cliOutput(result));
+  }
+});
+
+test("win32: rejects an NTFS junction as the final component", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-junction-"));
+  try {
+    const target = path.join(directory, "target");
+    fs.mkdirSync(target);
+    const junction = path.join(directory, "junction");
+    execFileSync("cmd.exe", ["/d", "/c", "mklink", "/J", junction, target], { stdio: "pipe" });
+    const result = spawnSync(process.execPath, [validatorPath, junction], { encoding: "utf8", timeout: HOSTILE_CLI_TIMEOUT_MS });
+    assert.equal(result.status, 1);
+    assert.match(cliOutput(result), /input must not be a symlink/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("win32: traverses an NTFS junction as an intermediate component", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-junction-"));
+  try {
+    const target = path.join(directory, "target");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "coverage-ledger.json"), JSON.stringify([unit()]));
+    const junction = path.join(directory, "junction");
+    execFileSync("cmd.exe", ["/d", "/c", "mklink", "/J", junction, target], { stdio: "pipe" });
+    // POSIX O_NOFOLLOW also protects only the final component, so traversal
+    // through an intermediate junction stays allowed; a clean exit proves the
+    // open itself succeeded.
+    const result = spawnSync(process.execPath, [validatorPath, path.join(junction, "coverage-ledger.json")], { encoding: "utf8", timeout: CLI_TIMEOUT_MS });
+    assert.equal(result.status, 0, cliOutput(result));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("win32: rejects a named pipe without hanging", { skip: process.platform !== "win32" }, async () => {
+  const pipeName = `\\\\.\\pipe\\validate-coverage-ledger-${process.pid}-${Date.now()}`;
+  const server = net.createServer(() => {});
+  await new Promise((resolve) => server.listen(pipeName, resolve));
+  try {
+    const result = spawnSync(process.execPath, [validatorPath, pipeName], { encoding: "utf8", timeout: HOSTILE_CLI_TIMEOUT_MS });
+    assert.ok(!result.error, "the CLI must reject a named pipe instead of hanging");
+    assert.equal(result.status, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("fallback rejects input replaced between lstat and open", { skip: !HAS_INPUT_FALLBACK }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-toctou-"));
+  try {
+    const inputPath = path.join(directory, "coverage-ledger.json");
+    fs.writeFileSync(inputPath, JSON.stringify([unit()]));
+    const realLstat = fs.lstatSync;
+    try {
+      fs.lstatSync = (target, options) => {
+        const entry = realLstat(target, options);
+        entry.ino = entry.ino + 1n; // the name now names a different file identity
+        return entry;
+      };
+      assert.throws(() => readFileWithinLimit(inputPath), /input was replaced while being opened/);
+    } finally {
+      fs.lstatSync = realLstat;
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("fallback accepts an unchanged input through the bigint identity match", { skip: !HAS_INPUT_FALLBACK }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-toctou-"));
+  try {
+    const inputPath = path.join(directory, "coverage-ledger.json");
+    fs.writeFileSync(inputPath, JSON.stringify([unit()]));
+    assert.equal(typeof readFileWithinLimit(inputPath), "string");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("fallback fails closed when the pre-open identity is unavailable", { skip: !HAS_INPUT_FALLBACK }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-toctou-"));
+  try {
+    const inputPath = path.join(directory, "coverage-ledger.json");
+    fs.writeFileSync(inputPath, JSON.stringify([unit()]));
+    const realLstat = fs.lstatSync;
+    try {
+      fs.lstatSync = (target, options) => {
+        const entry = realLstat(target, options);
+        entry.ino = 0n; // a filesystem that cannot supply an identity
+        return entry;
+      };
+      assert.throws(() => readFileWithinLimit(inputPath), /file identity is unavailable/);
+    } finally {
+      fs.lstatSync = realLstat;
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("fallback fails closed when the opened identity is unavailable", { skip: !HAS_INPUT_FALLBACK }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-toctou-"));
+  try {
+    const inputPath = path.join(directory, "coverage-ledger.json");
+    fs.writeFileSync(inputPath, JSON.stringify([unit()]));
+    const realFstat = fs.fstatSync;
+    try {
+      fs.fstatSync = (descriptor, options) => {
+        const entry = realFstat(descriptor, options);
+        entry.ino = 0n; // a filesystem that cannot supply an identity
+        return entry;
+      };
+      assert.throws(() => readFileWithinLimit(inputPath), /file identity is unavailable/);
+    } finally {
+      fs.fstatSync = realFstat;
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
