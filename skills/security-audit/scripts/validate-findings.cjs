@@ -708,9 +708,9 @@ function run(file) {
 
   let schema;
   try {
-    schema = loadSchema(path.join(__dirname, "report-schema.json"));
+    schema = loadSchema(path.join(__dirname, "../resources/report-schema.json"));
   } catch (error) {
-    console.error("Failed to load report-schema.json:", error.message);
+    console.error("Failed to load ../resources/report-schema.json:", error.message);
     return 1;
   }
 
