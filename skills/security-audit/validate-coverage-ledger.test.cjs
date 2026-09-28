@@ -605,6 +605,25 @@ test("does not reflect controls from a failed CLI input path", () => {
   }
 });
 
+test("CLI requires exactly one input path", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-args-"));
+  const ledgerPath = path.join(directory, "coverage-ledger.json");
+  try {
+    fs.writeFileSync(ledgerPath, JSON.stringify([unit()]));
+    for (const args of [[], [ledgerPath, ledgerPath]]) {
+      const result = spawnSync(process.execPath, [validatorPath, ...args], {
+        encoding: "utf8",
+        timeout: CLI_TIMEOUT_MS,
+      });
+      assert.equal(result.status, 1, cliOutput(result));
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /^Usage: node validate-coverage-ledger\.cjs /);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects invalid UTF-8 through the CLI", { skip: !HAS_SAFE_INPUT_OPEN }, () => {
   const encoded = Buffer.from(JSON.stringify([unit()]));
   const marker = Buffer.from("Update-user route");

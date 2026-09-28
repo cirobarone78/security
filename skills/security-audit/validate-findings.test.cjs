@@ -442,6 +442,25 @@ test("does not reflect controls from a failed CLI input path", () => {
   }
 });
 
+test("CLI requires exactly one input path", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-findings-args-"));
+  const findingsPath = path.join(directory, "findings.json");
+  try {
+    fs.writeFileSync(findingsPath, JSON.stringify(producerShapedFindings()));
+    for (const args of [[], [findingsPath, findingsPath]]) {
+      const result = spawnSync(process.execPath, [validatorPath, ...args], {
+        encoding: "utf8",
+        timeout: CLI_TIMEOUT_MS,
+      });
+      assert.equal(result.status, 1, cliOutput(result));
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /^Usage: node validate-findings\.cjs /);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("CLI rejects lone-surrogate prose without changing payload semantics", () => {
   const findings = producerShapedFindings();
   findings[0].title = "\ud800";

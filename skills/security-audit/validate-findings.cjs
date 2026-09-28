@@ -770,4 +770,7 @@ module.exports = {
   validateDocument,
 };
 
-if (require.main === module) process.exit(run(process.argv[2]));
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  process.exit(run(args.length === 1 ? args[0] : undefined));
+}
