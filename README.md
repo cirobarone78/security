@@ -65,6 +65,30 @@ npx skills add https://github.com/cloudflare/security-audit-skill \
 
 Run `npx skills --help` for agent-selection and non-interactive options.
 
+### Uploading a ZIP in the Claude app
+
+GitHub's **Code → Download ZIP** downloads the entire repository. Do not upload
+that archive directly in **Settings → Skills → Add → Upload Skills**: its
+`SKILL.md` is nested under `security-audit-skill-main/skills/security-audit/`,
+which is deeper than the uploader accepts.
+
+Instead, extract the repository archive, open its `skills` directory, and
+compress the **`security-audit` folder** into a new ZIP. Keep all files in that
+folder, including the companion documents, schema, and validators. For example,
+with a command-line ZIP tool, run this from the extracted repository directory:
+
+```bash
+cd skills
+zip -r security-audit.zip security-audit
+```
+
+The new archive should contain `security-audit/SKILL.md` directly inside its
+top-level `security-audit` folder, without the repository or `skills` parent
+directories. Upload this `security-audit.zip` through **Upload Skills**.
+
+This changes the archive layout only; the audit's tool and sandbox requirements
+in [Requirements](#requirements) still apply.
+
 ## Usage
 
 Start your coding agent in (or pointed at) the codebase you want to audit, then ask it to do a security audit:
