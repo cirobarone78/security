@@ -45,6 +45,8 @@ Use dummy principals, fixtures, and secrets. Do not probe deployed endpoints, ex
 
 In full audit mode, resolve these values before reconnaissance:
 
+Check that this host can run both bundled validator CLIs. They require nonzero `O_NOFOLLOW` and `O_NONBLOCK` file-opening flags and fail closed where those controls are unavailable, including the current Windows Node.js implementation. If either CLI cannot safely open a regular input file, do not launch a full audit on this host or claim its report is complete; use a supported host or provide guidance-mode analysis. Validator availability does not replace the separate sandbox checks for target-controlled execution.
+
 - **Skill directory**: the absolute directory containing this `SKILL.md`.
 - **Target**: the absolute repository root under review.
 - **Repo name**: a stable repository identifier from the directory or local Git remote.

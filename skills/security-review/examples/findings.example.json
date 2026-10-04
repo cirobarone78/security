@@ -1,0 +1,126 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "exports-handler-missing-tenant-scope",
+    "title": "Cross-tenant data read via unscoped export lookup",
+    "description": "The export download handler authenticates the caller but does not scope the export lookup to the caller's tenant, so any member can read another tenant's export by id.",
+    "root_cause": "Lookup by export id omits the tenant predicate present on every other read path.",
+    "intended_behavior": "An export is readable only by members of the tenant that owns it.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "src/exports/handler.ts",
+        "line": 31,
+        "scope": "GET /api/v1/exports/:id",
+        "description": "Authenticated route; auth middleware runs but no ownership check follows."
+      },
+      {
+        "kind": "propagation",
+        "file": "src/exports/repo.ts",
+        "line": 18,
+        "scope": "findById",
+        "description": "Handler passes the raw id to the repository with no tenant argument."
+      },
+      {
+        "kind": "sink",
+        "file": "src/exports/repo.ts",
+        "line": 22,
+        "scope": "SELECT by id",
+        "description": "Query selects the export by id only, with no tenant_id predicate."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "src/exports/handler.ts",
+        "line": 31,
+        "description": "Auth middleware present; no ownership or tenant check before the lookup."
+      },
+      {
+        "file": "src/exports/repo.ts",
+        "line": 22,
+        "description": "SELECT filters on id alone, unlike sibling reads which include tenant_id."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Caller is any authenticated member of any tenant."
+      },
+      {
+        "kind": "data_state",
+        "description": "Caller knows or guesses an export id belonging to another tenant."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An ordinary logged-in member of tenant A with no special role.",
+      "payloads": [
+        "GET /api/v1/exports/<id owned by tenant B> with a valid tenant-A session cookie."
+      ],
+      "instructions": [
+        "In a dummy-tenant integration test, seed one export for tenant B, authenticate as a tenant-A member, and request tenant B's export id."
+      ],
+      "observed_result": "Tenant A received tenant B's export body with HTTP 200 instead of 404 in the dummy-tenant integration test."
+    },
+    "remediation": {
+      "strategy": "Scope the lookup to the caller's tenant at the last trusted decision point so a non-owning caller receives 404, matching the sibling read paths.",
+      "code_changes": [
+        {
+          "file_name": "src/exports/repo.ts",
+          "fixed_code": "WHERE id = :id AND tenant_id = :callerTenant"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any member can do it with a guessable or enumerable id."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Cross-tenant read of sensitive records."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Complete source trace plus a reproduced dummy-tenant result."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "webhook-url-possible-ssrf",
+    "title": "Possible SSRF via member-set webhook URL",
+    "description": "Members can set a webhook URL the server later fetches. Source does not show whether the egress proxy blocks internal ranges, so the decisive fact is outside the repository.",
+    "claimed_root_cause": "A member-controlled webhook URL is fetched server-side with no source-visible internal-range block.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "src/webhooks/settings.ts",
+        "line": 44,
+        "scope": "POST /webhooks",
+        "description": "Member sets an arbitrary webhook URL, stored without an allowlist."
+      },
+      {
+        "kind": "sink",
+        "file": "src/webhooks/dispatch.ts",
+        "line": 12,
+        "scope": "fetch(url)",
+        "description": "Dispatcher fetches the stored URL directly."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "src/webhooks/dispatch.ts",
+        "line": 12,
+        "description": "Direct server-side fetch of the stored URL with no allowlist or internal-range check in source."
+      }
+    ],
+    "blockers": [
+      "Whether the deployment egress proxy blocks link-local and private ranges is not present in the repository."
+    ],
+    "validation_plan": {
+      "local": "In the sandbox with an isolated loopback, point the webhook at a local dummy server and confirm the dispatcher reaches it; this shows the fetch is attacker-directed but not the deployment egress posture.",
+      "deployment": "Ask the owner whether the production egress proxy denies RFC1918 and link-local destinations for the webhook dispatcher."
+    }
+  }
+]

@@ -149,6 +149,12 @@ test("accepts a complete ledger through the CLI", { skip: !HAS_SAFE_INPUT_OPEN }
   assert.match(result.stdout, /PASS: 1 coverage units valid/);
 });
 
+test("CLI fails closed when safe input opening is unavailable", { skip: HAS_SAFE_INPUT_OPEN }, () => {
+  const result = runCli(JSON.stringify([unit()]));
+  assert.notEqual(result.status, 0);
+  assert.match(cliOutput(result), /OS no-follow and nonblocking input protection is unavailable/);
+});
+
 test("text preflight ignores structural characters and escapes inside strings", () => {
   const value = unit({
     surface: "Route \\ slash [list] {object}, colon: quoted \"value\"",

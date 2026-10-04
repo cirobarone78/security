@@ -2,7 +2,9 @@
 
 A coding-agent skill that turns your agent into a security auditor. It orchestrates isolated agents through reconnaissance, coverage-led hunting, candidate validation, structured output, independent record verification, and target-neutral reporting.
 
-This is the skill that seeded Cloudflare's vulnerability discovery harness, described in [Build your own vulnerability harness](https://blog.cloudflare.com/build-your-own-vulnerability-harness). The harness grew into a multi-stage, fleet-wide system; this skill is the single-repo starting point it evolved from.
+This repository is a fork of [Cloudflare's security-audit-skill](https://github.com/cloudflare/security-audit-skill), the single-repository starting point for the harness described in [Build your own vulnerability harness](https://blog.cloudflare.com/build-your-own-vulnerability-harness). The audit method and validators are maintained upstream. This fork currently adds clearer usage and platform guidance and automated checks; it does not claim a different detection method.
+
+This fork also ships a second skill, [`security-review`](skills/security-review), a lighter adaptation of the same method for the Builders engineering family. It keeps the upstream verification spine (three verdicts, adversarial independence, severity-requires-impact, the hardened validators) and adds plain-language consequence framing, risk tiers, and explicit handoffs to sibling skills so a review can feed a release gate. Use `security-audit` for the full multi-agent harness and `security-review` when you want a review that speaks the Builders family's language. See its [NOTICE](skills/security-review/NOTICE.md) for attribution.
 
 ## What it does
 
@@ -51,14 +53,14 @@ Multiple runs against the same repo are additive. The skill uses prior ledgers a
 Install the skill with the [Skills CLI](https://skills.sh):
 
 ```bash
-npx skills add https://github.com/cloudflare/security-audit-skill \
+npx skills add https://github.com/Beckleytobi/security-audit-skill \
   --skill security-audit
 ```
 
 Use `--global` for a user-level installation:
 
 ```bash
-npx skills add https://github.com/cloudflare/security-audit-skill \
+npx skills add https://github.com/Beckleytobi/security-audit-skill \
   --skill security-audit \
   --global
 ```
@@ -83,11 +85,33 @@ do a security review, output to ~/audits/my-project
 
 The skill activates automatically when the request matches its trigger (security audit, find vulnerabilities, pen-test the code, etc.). A direct codebase audit or pen-test request uses full audit mode. Security questions and focused vulnerability work use guidance mode unless you request report artifacts. In full audit mode, an unspecified output directory defaults to `~/security-audit-skill/<repo-name>/run-<N>`. The workflow writes inside the target repository only when you explicitly select a directory that version control ignores.
 
+### Choose an audit size
+
+| Request | Skill behavior |
+|---|---|
+| A security question or one finding | Guidance mode: use the relevant method without creating a full audit run. |
+| A repository audit or requested report | Full audit mode: use the six phases and the `standard` profile by default. |
+| A fast first pass or a narrow subsystem | Request `quick` or name the scope; the report must say that coverage is partial. |
+| A high-stakes, multi-pass review | Request `deep`; it uses more independent review and agent calls. |
+
+For example: `Audit the authentication subsystem with the quick profile and report the coverage gaps.` The profiles change breadth and review effort, not the evidence required to confirm a finding. A full audit needs a platform that supports parallel agents and the validator and sandbox requirements below.
+
 ## Requirements
 
 - A coding agent with a model that supports tool use and parallel sub-agents
 - Node.js for the zero-dependency findings and coverage-ledger validators
 - An OS-enforced sandbox for target-controlled builds, tests, processes, browsers, emulators, fuzzers, and fixtures. It must disable external networking, use a sanitized allowlisted environment, enforce resource limits, and allow writes only to assigned scratch paths. Without these controls, the workflow keeps the lead as `needs_validation` instead of executing target code.
+- The bundled validator CLIs require Node.js to expose nonzero `O_NOFOLLOW` and `O_NONBLOCK` file-opening flags. On platforms without them, including Windows with the currently bundled Node.js validator implementation, they deliberately fail closed. Use a supported host for a complete audit; a Windows host can still use guidance mode and the validators' in-process checks, but cannot claim a completed full run. Running Node in a Linux container does not by itself satisfy the separate target-code sandbox requirements.
+
+## Checks
+
+The repository tests both validators on Linux and Windows in CI. On platforms without safe input-opening flags, CLI acceptance tests are skipped and explicit tests check that the CLIs fail closed. Locally, run:
+
+```bash
+node --test skills/security-audit/validate-findings.test.cjs skills/security-audit/validate-coverage-ledger.test.cjs
+```
+
+These tests check validator behavior; they do not measure vulnerability detection quality. A comparative evaluation against known vulnerable and clean repositories remains future work.
 
 ## Design principles
 
@@ -95,11 +119,7 @@ The skill activates automatically when the request matches its trigger (security
 - **Adversarial validation.** The agent that checks a finding is never the agent that found it.
 - **Severity requires impact.** Likelihood x impact, not deviation from a checklist.
 - **Defense-in-depth gaps are not vulnerabilities.** If Layer A prevents the attack, the absence of Layer B is a hardening note.
-- **Multiple runs improve coverage.** In our test runs, a single run found roughly half of the vulnerabilities that repeated runs found in total.
-
-## Contact
-
-Questions, feedback, or comparing notes on AI-driven security tooling: security-ai-research@cloudflare.com
+- **Multiple runs can improve coverage.** Preserve prior evidence and gaps so later runs can target work left open; measure the gain on your own repositories rather than assuming a fixed detection rate.
 
 ## License
 
