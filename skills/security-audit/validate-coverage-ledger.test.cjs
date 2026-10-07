@@ -490,6 +490,43 @@ test("rejects reassignment owner reuse and evidence mixing", () => {
   assert(errorsFor([unordered]).some((error) => error.includes("strictly increasing")));
 });
 
+test("allows multiple local checks within the same archived attempt to share an artifact", () => {
+  const check1 = localCheck("hunter-1", { reviewed_paths: ["src/router.ts"] });
+  const check2 = localCheck("hunter-1", { reviewed_paths: ["src/authz.ts"] });
+  const sharedAttempt = archivedAttempt({
+    status: "covered",
+    reviewed_paths: ["src/router.ts", "src/authz.ts"],
+    local_checks: [check1, check2],
+    unresolved: [],
+  });
+
+  const validReassigned = unit({
+    attempts: [sharedAttempt],
+    wave: 2,
+    status: "in_progress",
+    agent_id: "hunter-2",
+  });
+  assert.deepEqual(errorsFor([validReassigned]), []);
+
+  const crossAttemptReuse = unit({
+    attempts: [
+      sharedAttempt,
+      archivedAttempt({
+        wave: 2,
+        status: "covered",
+        agent_id: "hunter-2",
+        reviewed_paths: ["src/router.ts"],
+        local_checks: [localCheck("hunter-2", { artifact: check1.artifact })],
+        unresolved: [],
+      }),
+    ],
+    wave: 3,
+    status: "in_progress",
+    agent_id: "hunter-3",
+  });
+  assert(errorsFor([crossAttemptReuse]).some((error) => error.includes("artifact from an earlier attempt cannot be reused")));
+});
+
 test("rejects unsafe paths and malformed fingerprints", () => {
   for (const value of [
     "/etc/passwd",
