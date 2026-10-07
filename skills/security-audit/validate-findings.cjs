@@ -601,16 +601,47 @@ function loadSchema(schemaPath) {
   return schema;
 }
 
+function isSameFileIdentity(before, after) {
+  return before.dev === after.dev && before.ino === after.ino && before.birthtimeNs === after.birthtimeNs;
+}
+
+// Windows defines neither O_NOFOLLOW nor O_NONBLOCK. A device or UNC path (\\.\pipe\..., \\?\..., \\server\share)
+// is refused before lstat, because opening one can connect to a pipe server or start SMB authentication.
+// Node reports symbolic links and junctions as links to lstat. The fstat check refuses a path swapped between
+// lstat and open by dev, ino and birth time; ReFS IDs are not guaranteed unique, and an ino of 0 means no identity.
+function openWindowsInput(file) {
+  const resolved = path.resolve(file);
+  if (resolved.startsWith("\\\\") || resolved.startsWith("//")) throw new SafeInputError("input must be a local file path");
+  const checked = fs.lstatSync(resolved, { bigint: true });
+  if (checked.isSymbolicLink()) throw new SafeInputError("input must not be a symlink");
+  if (!checked.isFile()) throw new SafeInputError("input must be a regular file");
+  if (checked.ino === 0n) throw new SafeInputError("input file identity is unavailable");
+
+  const descriptor = fs.openSync(resolved, fs.constants.O_RDONLY);
+  try {
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile()) throw new SafeInputError("input must be a regular file");
+    if (!isSameFileIdentity(checked, opened)) throw new SafeInputError("input changed between check and open");
+  } catch (error) {
+    fs.closeSync(descriptor);
+    throw error;
+  }
+  return descriptor;
+}
+
 function readFileWithinLimit(file) {
   const noFollow = fs.constants.O_NOFOLLOW;
   const nonBlock = fs.constants.O_NONBLOCK;
-  if (!Number.isInteger(noFollow) || noFollow === 0 || !Number.isInteger(nonBlock) || nonBlock === 0) {
+  const hasNoFollowOpen = Number.isInteger(noFollow) && noFollow !== 0 && Number.isInteger(nonBlock) && nonBlock !== 0;
+  if (!hasNoFollowOpen && process.platform !== "win32") {
     throw new SafeInputError("OS no-follow and nonblocking input protection is unavailable");
   }
 
   let descriptor;
   try {
-    descriptor = fs.openSync(file, fs.constants.O_RDONLY | noFollow | nonBlock);
+    descriptor = hasNoFollowOpen
+      ? fs.openSync(file, fs.constants.O_RDONLY | noFollow | nonBlock)
+      : openWindowsInput(file);
   } catch (error) {
     if (error && (error.code === "ELOOP" || error.code === "EMLINK")) {
       throw new SafeInputError("input must not be a symlink");
@@ -767,6 +798,7 @@ module.exports = {
   collectSchemaErrors,
   hasVisibleProse,
   isSafeRelativeSourcePath,
+  readFileWithinLimit,
   validateDocument,
 };
 
