@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -9,16 +10,18 @@ const {
   LIMITS,
   collect,
   collectSchemaErrors,
+  readFileWithinLimit,
   validateDocument,
 } = require("./validate-findings.cjs");
 
 const validatorPath = path.join(__dirname, "validate-findings.cjs");
 const CLI_TIMEOUT_MS = 5000;
 const HOSTILE_CLI_TIMEOUT_MS = 15000;
-const HAS_SAFE_INPUT_OPEN = Number.isInteger(fs.constants.O_NOFOLLOW) &&
+// Windows defines neither constant; the validator falls back to lstat, open and an fstat identity check there.
+const HAS_SAFE_INPUT_OPEN = process.platform === "win32" || (Number.isInteger(fs.constants.O_NOFOLLOW) &&
   fs.constants.O_NOFOLLOW !== 0 &&
   Number.isInteger(fs.constants.O_NONBLOCK) &&
-  fs.constants.O_NONBLOCK !== 0;
+  fs.constants.O_NONBLOCK !== 0);
 const TERMINAL_CONTROL_PAYLOAD = "\u001b\u0007\u0085\u202e\u034f\ufe0f";
 const TERMINAL_CONTROL_BYTES = [
   Buffer.from([0x1b]),
@@ -500,6 +503,87 @@ test("CLI rejects a symlink without following it", { skip: process.platform === 
     assert.match(output, /input must not be a symlink/);
     assert.doesNotMatch(output, /stack|at validate-findings/i);
   } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const { kind, label, makeTarget } of [
+  { kind: "file", label: "symbolic link", makeTarget: (target) => fs.writeFileSync(target, JSON.stringify(producerShapedFindings())) },
+  { kind: "junction", label: "junction", makeTarget: (target) => fs.mkdirSync(target) },
+]) {
+  test(`CLI rejects a Windows ${label} without following it`, { skip: process.platform !== "win32" }, (t) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-findings-winlink-"));
+    const targetPath = path.join(directory, "target");
+    const linkPath = path.join(directory, "findings.json");
+    try {
+      makeTarget(targetPath);
+      try {
+        fs.symlinkSync(targetPath, linkPath, kind);
+      } catch (error) {
+        if (error.code !== "EPERM") throw error;
+        t.skip("creating a symbolic link needs Developer Mode or SeCreateSymbolicLinkPrivilege");
+        return;
+      }
+      const result = spawnSync(process.execPath, [validatorPath, linkPath], {
+        encoding: "utf8",
+        timeout: CLI_TIMEOUT_MS,
+      });
+      const output = cliOutput(result);
+      assert.equal(result.status, 1, output);
+      assert.match(output, /input must not be a symlink/);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test("CLI rejects a Windows named pipe without blocking", { skip: process.platform !== "win32" }, async () => {
+  const pipePath = `\\\\.\\pipe\\validate-findings-${process.pid}-${Date.now()}`;
+  const server = net.createServer((socket) => socket.end());
+  await new Promise((resolve) => server.listen(pipePath, resolve));
+  try {
+    const result = spawnSync(process.execPath, [validatorPath, pipePath], {
+      encoding: "utf8",
+      timeout: CLI_TIMEOUT_MS,
+    });
+    const output = cliOutput(result);
+    assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
+    assert.equal(result.status, 1, output);
+    assert.match(output, /input must be a local file path/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("refuses a Windows input replaced between check and open", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-findings-swap-"));
+  const inputPath = path.join(directory, "findings.json");
+  const originalOpenSync = fs.openSync;
+  try {
+    fs.writeFileSync(inputPath, JSON.stringify(producerShapedFindings()));
+    // Deleting and recreating the file gives it a new file ID, so the descriptor no longer matches lstat.
+    fs.openSync = (...args) => {
+      fs.openSync = originalOpenSync;
+      fs.unlinkSync(inputPath);
+      fs.writeFileSync(inputPath, "[]");
+      return originalOpenSync(...args);
+    };
+    assert.throws(() => readFileWithinLimit(inputPath), /input changed between check and open/);
+  } finally {
+    fs.openSync = originalOpenSync;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("reads a Windows input given as a relative path", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-findings-relative-"));
+  const originalDirectory = process.cwd();
+  try {
+    fs.writeFileSync(path.join(directory, "findings.json"), "[]");
+    process.chdir(directory);
+    assert.equal(readFileWithinLimit("findings.json"), "[]");
+  } finally {
+    process.chdir(originalDirectory);
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
