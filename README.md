@@ -86,7 +86,7 @@ The skill activates automatically when the request matches its trigger (security
 ## Requirements
 
 - A coding agent with a model that supports tool use and parallel sub-agents
-- Node.js for the zero-dependency findings and coverage-ledger validators
+- Node.js for the zero-dependency findings and coverage-ledger validators. On POSIX they open input with `O_NOFOLLOW | O_NONBLOCK`; on Windows, which has neither flag, they refuse links, junctions, devices, and pipes by `lstat` and require the opened file to keep the same volume and file ID. Other platforms without the flags reject all input. Run their tests with `node --test "skills/security-audit/*.test.cjs"`; CI runs them on Linux, macOS, and Windows.
 - An OS-enforced sandbox for target-controlled builds, tests, processes, browsers, emulators, fuzzers, and fixtures. It must disable external networking, use a sanitized allowlisted environment, enforce resource limits, and allow writes only to assigned scratch paths. Without these controls, the workflow keeps the lead as `needs_validation` instead of executing target code.
 
 ## Design principles

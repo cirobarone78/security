@@ -17,10 +17,11 @@ const {
 const validatorPath = path.join(__dirname, "validate-coverage-ledger.cjs");
 const CLI_TIMEOUT_MS = 5000;
 const HOSTILE_CLI_TIMEOUT_MS = 15000;
-const HAS_SAFE_INPUT_OPEN = Number.isInteger(fs.constants.O_NOFOLLOW) &&
+// Windows lacks both flags but has the validator's lstat/fstat identity path.
+const HAS_SAFE_INPUT_OPEN = process.platform === "win32" || (Number.isInteger(fs.constants.O_NOFOLLOW) &&
   fs.constants.O_NOFOLLOW !== 0 &&
   Number.isInteger(fs.constants.O_NONBLOCK) &&
-  fs.constants.O_NONBLOCK !== 0;
+  fs.constants.O_NONBLOCK !== 0);
 
 function unit(overrides = {}) {
   const canonicalRefs = overrides.canonical_refs || {
@@ -652,6 +653,27 @@ test("rejects a symlink through the CLI", { skip: process.platform === "win32" |
     fs.writeFileSync(targetPath, JSON.stringify([unit()]));
     fs.symlinkSync(targetPath, symlinkPath);
     const result = spawnSync(process.execPath, [validatorPath, symlinkPath], {
+      encoding: "utf8",
+      timeout: CLI_TIMEOUT_MS,
+    });
+    const output = cliOutput(result);
+    assert.notEqual(result.error && result.error.code, "ETIMEDOUT", output);
+    assert.equal(result.status, 1, output);
+    assert.match(output, /input must not be a symlink/);
+    assert.doesNotMatch(output, /stack|at validate-coverage-ledger/i);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects a Windows junction through the CLI", { skip: process.platform !== "win32" }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "validate-coverage-ledger-junction-"));
+  const targetPath = path.join(directory, "target");
+  const junctionPath = path.join(directory, "coverage-ledger.json");
+  try {
+    fs.mkdirSync(targetPath);
+    fs.symlinkSync(targetPath, junctionPath, "junction");
+    const result = spawnSync(process.execPath, [validatorPath, junctionPath], {
       encoding: "utf8",
       timeout: CLI_TIMEOUT_MS,
     });
