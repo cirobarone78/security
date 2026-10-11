@@ -340,6 +340,17 @@
               "visibleContent": true
             }
           },
+          "blocker_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$"
+            },
+            "description": "References to open shared_blocker records; remove each reference after its fact is settled and the dependent candidate is re-evaluated."
+          },
           "validation_plan": {
             "type": "object",
             "properties": {
@@ -454,6 +465,51 @@
           }
         },
         "required": ["verdict", "fingerprint", "title", "description", "claimed_root_cause", "trace", "evidence", "reason"],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "description": "An owner-observed fact shared by multiple needs_validation candidates, not a finding.",
+        "properties": {
+          "record_kind": {
+            "type": "string",
+            "const": "shared_blocker"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "visibleContent": true
+          },
+          "owner_observed_check": {
+            "type": "string",
+            "minLength": 1,
+            "visibleContent": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "settled"
+            ]
+          },
+          "settlement_evidence": {
+            "type": "string",
+            "minLength": 1,
+            "visibleContent": true
+          }
+        },
+        "required": [
+          "record_kind",
+          "id",
+          "description",
+          "owner_observed_check",
+          "status"
+        ],
         "additionalProperties": false
       }
     ]

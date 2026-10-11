@@ -94,6 +94,73 @@ function rejected() {
   };
 }
 
+function sharedBlocker(id = "deployment-role", status = "open") {
+  const record = {
+    record_kind: "shared_blocker",
+    id,
+    description: "The deployed runtime role is not known.",
+    owner_observed_check: "The owner reads the runtime role in the approved deployment.",
+    status,
+  };
+  if (status === "settled") record.settlement_evidence = "The owner observed the deployed role in its read-only configuration.";
+  return record;
+}
+
+test("shared deployment facts preserve legacy arrays and can serve multiple candidates", () => {
+  assert.deepEqual(validateDocument([needsValidation()], schema), []);
+  const first = { ...needsValidation(), fingerprint: "a", blocker_ids: ["deployment-role"] };
+  const second = { ...needsValidation(), fingerprint: "b", blocker_ids: ["deployment-role"] };
+  assert.deepEqual(validateDocument([first, second, sharedBlocker()], schema), []);
+});
+
+test("shared blocker references must exist and be unique", () => {
+  const finding = { ...needsValidation(), blocker_ids: ["missing"] };
+  assert.match(validateDocument([finding], schema).join("\n"), /unknown shared blocker/);
+  finding.blocker_ids = ["deployment-role", "deployment-role"];
+  assert.match(validateDocument([finding, sharedBlocker()], schema).join("\n"), /items must be unique/);
+  assert.match(validateDocument([sharedBlocker(), sharedBlocker()], schema).join("\n"), /duplicate shared blocker id/);
+});
+
+test("settlement flags every stale dependent reference without promoting findings", () => {
+  const first = { ...needsValidation(), fingerprint: "a", blocker_ids: ["deployment-role"] };
+  const second = { ...needsValidation(), fingerprint: "b", blocker_ids: ["deployment-role"] };
+  const errors = validateDocument([first, second, sharedBlocker("deployment-role", "settled")], schema);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /\$\[0\].blocker_ids\[0\].*is settled/);
+  assert.match(errors[1], /\$\[1\].blocker_ids\[0\].*is settled/);
+  delete first.blocker_ids;
+  delete second.blocker_ids;
+  // Both candidates retain their independent unresolved parser blocker.
+  assert.deepEqual(validateDocument([first, second, sharedBlocker("deployment-role", "settled")], schema), []);
+});
+
+test("shared blocker status requires consistent visible settlement evidence", () => {
+  const settled = sharedBlocker("deployment-role", "settled");
+  delete settled.settlement_evidence;
+  assert.match(validateDocument([settled], schema).join("\n"), /settled blocker requires visible evidence/);
+  settled.settlement_evidence = " ";
+  assert.match(validateDocument([settled], schema).join("\n"), /visible/);
+  const open = sharedBlocker();
+  open.settlement_evidence = "Already observed";
+  assert.match(validateDocument([open], schema).join("\n"), /open blocker must not contain settlement_evidence/);
+});
+
+test("shared records sort after findings and by id without affecting fingerprint ordering", () => {
+  assert.match(validateDocument([sharedBlocker(), needsValidation()], schema).join("\n"), /findings must precede/);
+  assert.match(validateDocument([sharedBlocker("z"), sharedBlocker("a")], schema).join("\n"), /shared blockers must be sorted/);
+  assert.deepEqual(validateDocument([needsValidation(), sharedBlocker("a"), sharedBlocker("z")], schema), []);
+});
+
+test("shared facts cannot be attached to settled finding verdicts or masquerade as findings", () => {
+  for (const finding of [confirmed(), rejected()]) {
+    finding.blocker_ids = ["deployment-role"];
+    assert.match(validateDocument([finding, sharedBlocker()], schema).join("\n"), /only needs_validation/);
+  }
+  const record = sharedBlocker();
+  record.verdict = "confirmed";
+  assert.notDeepEqual(validateDocument([record], schema), []);
+});
+
 function errorsFor(value) {
   return validateDocument(value, schema);
 }
@@ -148,10 +215,11 @@ function rejectMutation(factory, mutate) {
   assert.notEqual(errorsFor([value]).length, 0);
 }
 
-test("schema is an actual top-level array with exactly three branches", () => {
+test("schema preserves three finding verdicts and adds one shared blocker branch", () => {
   assert.equal(schema.type, "array");
-  assert.equal(schema.items.oneOf.length, 3);
-  assert.deepEqual(schema.items.oneOf.map((branch) => branch.properties.verdict.const), [
+  assert.equal(schema.items.oneOf.length, 4);
+  assert.equal(schema.items.oneOf[3].properties.record_kind.const, "shared_blocker");
+  assert.deepEqual(schema.items.oneOf.slice(0, 3).map((branch) => branch.properties.verdict.const), [
     "confirmed", "needs_validation", "rejected",
   ]);
   const confirmedSchema = schema.items.oneOf[0].properties;
@@ -165,6 +233,15 @@ test("accepts a producer-shaped findings document through the CLI", () => {
   const result = runCli(JSON.stringify(producerShapedFindings()));
   assert.equal(result.status, 0, cliOutput(result));
   assert.match(result.stdout, /PASS: 3 findings valid/);
+});
+
+test("CLI reports shared blockers separately from finding counts", () => {
+  const findings = producerShapedFindings();
+  findings.find((record) => record.verdict === "needs_validation").blocker_ids = ["deployment-role"];
+  findings.push(sharedBlocker());
+  const result = runCli(JSON.stringify(findings));
+  assert.equal(result.status, 0, cliOutput(result));
+  assert.match(result.stdout, /PASS: 3 findings valid; 1 shared blockers valid/);
 });
 
 test("accepts empty output and each complete branch", () => {

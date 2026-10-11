@@ -94,7 +94,7 @@ If a strict total-agent budget cannot cover every candidate, set the run status 
 
 ### Phase 4: Write and validate `findings.json`
 
-The parent writes all independently decided records to `<output-dir>/findings.json`, sorted by fingerprint. Include:
+The parent writes all independently decided findings to `<output-dir>/findings.json`, sorted by fingerprint, followed by any shared blocker records sorted by id. Include:
 
 - `confirmed`: source-grounded vulnerabilities with complete local execution evidence, conditions, specific remediation, likelihood/impact/overall severity, and confidence.
 - `needs_validation`: source-grounded candidates with an exact unresolved blocker and at least one applicable local or owner-observed deployment plan.
@@ -105,6 +105,45 @@ Read `report-schema.json` immediately before writing. It uses `additionalPropert
 - A `confirmed` record uses `root_cause`, `intended_behavior`, `conditions`, `execution`, `remediation`, `severity`, and `confidence`. It must not use `claimed_root_cause`, `blockers`, `validation_plan`, or `reason`. `execution` is target-neutral and uses the target's native interface: API/HTTP input, CLI call, library call, message, file fixture, browser action, rendered policy, or local harness as applicable. `observed_result` is nonempty and factual.
 - A `needs_validation` record uses `claimed_root_cause`, `trace`, `evidence`, `blockers`, and at least one nonempty `validation_plan.local` or `validation_plan.deployment` field. Include both only when both contexts can resolve distinct facts. It must not use severity, execution, remediation, reason, or confirmed root cause.
 - A `rejected` record uses `claimed_root_cause`, `trace`, `evidence`, and `reason`. It must not use severity, execution, remediation, blockers, validation plan, or confirmed root cause.
+
+#### Shared deployment facts
+
+When multiple candidates depend on the same external fact, declare it once as a
+`shared_blocker` record in the same array. It is bookkeeping, not a finding, and
+has no verdict, fingerprint, severity, or vulnerability count. Use a stable `id`,
+an exact `description`, an `owner_observed_check` describing the safe, bounded,
+read-only observation that can settle the fact, and `status: "open"`.
+
+```json
+{
+  "record_kind": "shared_blocker",
+  "id": "database-runtime-rls",
+  "description": "Whether row-level security binds the deployed runtime role is unknown.",
+  "owner_observed_check": "The owner reads the runtime role and applicable RLS configuration in the approved deployment, without executing attacker input.",
+  "status": "open"
+}
+```
+
+A `needs_validation` finding may add `blocker_ids: ["database-runtime-rls"]`.
+Keep its required free-text `blockers` and `validation_plan` for candidate-specific
+limitations and next steps; these do not replace the shared record or its check.
+Existing findings arrays without shared blockers remain valid. Do not reference
+shared blockers from confirmed or rejected findings.
+
+After an owner actually observes the fact, set `status: "settled"` and add visible
+`settlement_evidence` recording the observation and its provenance. A settled fact
+is not proof of a vulnerability. The validator rejects every remaining reference
+to that settled id, identifying all dependent candidates without text matching.
+Re-evaluate each candidate under Phases 3–5, remove the settled `blocker_ids`
+reference and any corresponding obsolete free-text blocker, and keep only genuine
+remaining blockers. Omit `blocker_ids` when empty. If no blockers remain, obtain
+the decisive independent validation and classify the record as confirmed or
+rejected; never promote it automatically from the deployment fact alone. Keep
+the settled shared record and its evidence for provenance, then regenerate reports
+and update affected ledger units. An open record must not contain settlement evidence.
+
+Phase 5 checks these shared facts and the consistency of their dependent records
+as well as the findings. A stale settled reference prevents final publication.
 
 Every record has a stable fingerprint, title, description, and repository-relative source paths. A multi-step trace begins with `entrypoint`, ends with `sink`, and uses `propagation` only between them. One-entry traces use `entrypoint` or `sink`. Overall severity cannot exceed demonstrated impact.
 
@@ -160,7 +199,7 @@ Write:
 2. One short security posture summary.
 3. A confirmed-findings table: severity, title, affected boundary, and one-line observed result.
 4. Each confirmed finding: repository source location, lower-trust principal, target-native bounded reproduction, conditions, actual result, impact, priority rationale, and smallest source fix.
-5. A separate `NEEDS VALIDATION` table. Give each lead's title, repository trace, exact blocker, bounded local next step, and safe owner-observed deployment check. Do not assign severity or call it a confirmed vulnerability.
+5. A separate `NEEDS VALIDATION` table. Give each lead's title, repository trace, exact blocker, bounded local next step, and safe owner-observed deployment check. Include its shared blocker ids, resolving their facts from the structured records. Do not assign severity or call it a confirmed vulnerability. When shared blockers exist, render a separate table with id, exact fact, status, owner-observed check, settlement evidence (if settled), and dependent fingerprints. Rank open facts by descending count of distinct referring needs_validation findings, breaking ties lexicographically by id; list settled facts separately for provenance. This count measures candidates awaiting a fact, not guaranteed vulnerabilities or automatic promotions. Exclude shared blocker records from all finding/verdict counts.
 6. Separate hardening notes and positive source patterns.
 7. Coverage summary from the ledger: covered, candidate, blocked, and deferred counts, plus important exclusions and the final critic result.
 
@@ -180,6 +219,11 @@ For each confirmed `medium`, `high`, or `critical` record, copy the complete sou
 #### `NEEDS-VALIDATION.md`
 
 For every unresolved record, copy the source trace, verified evidence, exact blocker, affected boundary, and each applicable bounded local or owner-observed resolution plan. Keep these as prioritized leads without severity. Do not turn them into live test guidance or assume the missing deployment fact.
+
+Render the same ranked shared-blocker table here when present. Each lead names its
+`blocker_ids` and links to that table instead of duplicating shared fact text.
+The table and lead references come only from the validated final array; do not
+maintain a separate handwritten deployment-facts list.
 
 HTTP is one possible native interface, not the default. A library finding may use a function call, a parser a fixture, a CLI a command, a desktop app an IPC or file action, and infrastructure a locally rendered policy. Do not require an endpoint, external account, or live environment that the target does not have.
 

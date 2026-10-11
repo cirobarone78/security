@@ -487,11 +487,44 @@ function collectFindingSemanticErrors(findings) {
   if (!Array.isArray(findings)) return errors;
 
   const fingerprints = new Map();
+  const sharedBlockers = new Map();
+  let previousBlockerId = null;
+  let sawSharedBlocker = false;
+  findings.forEach((record, index) => {
+    if (!record || record.record_kind !== "shared_blocker") return;
+    const base = `$[${index}]`;
+    if (typeof record.id === "string") {
+      if (sharedBlockers.has(record.id)) {
+        errors.push(`${base}.id: duplicate shared blocker id`);
+      } else {
+        sharedBlockers.set(record.id, record);
+      }
+    }
+    if (record.status === "settled") {
+      if (typeof record.settlement_evidence !== "string" || !hasVisibleProse(record.settlement_evidence)) {
+        errors.push(`${base}.settlement_evidence: settled blocker requires visible evidence`);
+      }
+    } else if (hasOwn(record, "settlement_evidence")) {
+      errors.push(`${base}: open blocker must not contain settlement_evidence`);
+    }
+  });
   let previousFingerprint = null;
   findings.forEach((finding, index) => {
     if (errors.length >= LIMITS.validationErrors) return;
     if (!finding || typeof finding !== "object" || Array.isArray(finding)) return;
     const base = `$[${index}]`;
+
+    if (finding.record_kind === "shared_blocker") {
+      sawSharedBlocker = true;
+      if (typeof finding.id === "string") {
+        if (previousBlockerId !== null && previousBlockerId > finding.id) {
+          errors.push(`${base}.id: shared blockers must be sorted lexicographically`);
+        }
+        previousBlockerId = finding.id;
+      }
+      return;
+    }
+    if (sawSharedBlocker) errors.push(`${base}: findings must precede shared blocker records`);
 
     if (hasOwn(finding, "fingerprint") && typeof finding.fingerprint === "string") {
       if (fingerprints.has(finding.fingerprint)) {
@@ -546,6 +579,21 @@ function collectFindingSemanticErrors(findings) {
     }
 
     const verdict = finding.verdict;
+    if (hasOwn(finding, "blocker_ids")) {
+      if (verdict !== "needs_validation") {
+        errors.push(`${base}: only needs_validation records may reference shared blockers`);
+      }
+      if (Array.isArray(finding.blocker_ids)) {
+        finding.blocker_ids.forEach((id, referenceIndex) => {
+          const blocker = sharedBlockers.get(id);
+          if (!blocker) {
+            errors.push(`${base}.blocker_ids[${referenceIndex}]: unknown shared blocker ${safeQuote(id)}`);
+          } else if (blocker.status === "settled") {
+            errors.push(`${base}.blocker_ids[${referenceIndex}]: shared blocker ${safeQuote(id)} is settled; re-evaluate the candidate and remove this reference`);
+          }
+        });
+      }
+    }
     if (verdict === "confirmed") {
       for (const forbidden of ["claimed_root_cause", "blockers", "validation_plan", "reason"]) {
         if (hasOwn(finding, forbidden)) errors.push(`${base}: confirmed finding must not contain ${safeQuote(forbidden)}`);
@@ -752,7 +800,9 @@ function run(file) {
     console.error(`FAIL: ${errors.length} validation error(s)${cap}`);
     return 1;
   }
-  console.log(`PASS: ${findings.length} findings valid`);
+  const sharedBlockerCount = findings.filter((record) => record.record_kind === "shared_blocker").length;
+  const suffix = sharedBlockerCount > 0 ? `; ${sharedBlockerCount} shared blockers valid` : "";
+  console.log(`PASS: ${findings.length - sharedBlockerCount} findings valid${suffix}`);
   return 0;
 }
 
