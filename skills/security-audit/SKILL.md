@@ -30,14 +30,14 @@ Use equivalent platform capabilities while preserving role, write-isolation, pro
 
 ## Universal execution safety
 
-These rules apply in both operating modes. Source inspection is read-only. Run target-controlled builds, tests, processes, browsers, emulators, fuzzers, and fixture processing only inside an OS-enforced sandbox that provides all of these controls:
+These rules apply in both operating modes. Source inspection is read-only, but the target's version-control metadata is target-controlled: treat the target's `.git/config`, `.git/hooks/`, `.git/info/`, `.gitattributes`, and `.gitmodules` as hostile. A `git` command run against the target can execute commands the target placed in its own repository config — for example `git status`/`git diff` run a `core.fsmonitor` program, and `git log -p`/`git show` run a `diff.<driver>.textconv` program — on the host, outside the sandbox. So run `git` against the target only with its configuration neutralized (`GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, a scratch `HOME`, `-c core.fsmonitor=false -c core.hooksPath=/dev/null`, and `--no-textconv --no-ext-diff` on diff-producing subcommands), or, preferably, inspect a clean copy made with `git clone --no-local --no-checkout` so no target config or hooks are honored. Run target-controlled builds, tests, processes, browsers, emulators, fuzzers, and fixture processing only inside an OS-enforced sandbox that provides all of these controls:
 
 - no external network; use only an isolated loopback namespace when the check needs local client/server traffic;
 - an empty environment populated from an explicit allowlist with safe values, with scratch-local `HOME`, temporary directories, and caches;
 - a read-only target and toolchain, with the target-controlled process able to write only inside its assigned `scratch/` directory; and
 - explicit low CPU, memory, process, file-size, disk, and wall-clock limits.
 
-The agent, outside the target-controlled process, may make a disposable source copy in an assigned `scratch/` directory when a build must write beside source. In guidance mode, do not retain target-controlled files. In full audit mode, only trusted parent-side code may promote the minimum non-secret result to retained `artifacts/` using the procedure under Write isolation. Never expose a retained output directory (other than the agent's own assigned `scratch/`), another agent's directory, the host home directory, credentials, sockets, or shared services to target code. Do not install dependencies or let builds fetch them. Use only tools and dependencies already available locally. If every control cannot be enforced, do not execute target code: report the missing sandbox capability as a needs-validation blocker and give a safe validation plan.
+The agent, outside the target-controlled process, may make a disposable source copy in an assigned `scratch/` directory when a build must write beside source. That copy must not dereference symlinks — copy links as links or omit them — and neither reading nor copying source may follow a target symlink that resolves outside the target, so a target-planted link cannot pull host files such as credentials into `scratch/` or into evidence. In guidance mode, do not retain target-controlled files. In full audit mode, only trusted parent-side code may promote the minimum non-secret result to retained `artifacts/` using the procedure under Write isolation. Never expose a retained output directory (other than the agent's own assigned `scratch/`), another agent's directory, the host home directory, credentials, sockets, or shared services to target code. Do not install dependencies or let builds fetch them. Use only tools and dependencies already available locally. If every control cannot be enforced, do not execute target code: report the missing sandbox capability as a needs-validation blocker and give a safe validation plan.
 
 Use dummy principals, fixtures, and secrets. Do not probe deployed endpoints, external services, shared infrastructure, production identities, other users' data, or live control planes. Do not test availability against a live or shared process, publish artifacts, alter releases, spend paid API quota, or continue beyond the minimum local effect needed to establish a defect. If the decisive fact is outside source or the sandboxed fixture, report it as needing validation.
 
@@ -47,9 +47,9 @@ In full audit mode, resolve these values before reconnaissance:
 
 - **Skill directory**: the absolute directory containing this `SKILL.md`.
 - **Target**: the absolute repository root under review.
-- **Repo name**: a stable repository identifier from the directory or local Git remote.
+- **Repo name**: a stable repository identifier from the directory or local Git remote, read with neutralized `git` or by reading `.git/HEAD` and refs as text (see Universal execution safety).
 - **Output directory**: a new writable directory outside the target, defaulting to `~/security-audit-skill/<repo-name>/run-<N>`, where `<N>` is the next unused integer. Use a directory inside the target only when the user explicitly selects it and the parent verifies that version control ignores the whole directory. Otherwise stop and request an external path.
-- **Source ref**: the reviewed commit and whether the worktree is dirty. Do not treat unreviewed generated or modified files as another revision.
+- **Source ref**: the reviewed commit and whether the worktree is dirty, obtained with neutralized `git` or from a clean clone — do not run `git status`/`git diff` against the target's own `.git`. Do not treat unreviewed generated or modified files as another revision.
 
 ### Write isolation
 

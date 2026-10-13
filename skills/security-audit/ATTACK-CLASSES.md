@@ -100,7 +100,7 @@ Use these starting points, but do not limit yourself to them:
 - What happens if you use the API in a way the frontend never would? The UI constrains users, but the API does not. What API calls are possible but never made by the client?
 - Are there any hidden or undocumented endpoints, parameters, headers, or features? Look at route registrations, middleware, and config for things that are not in the docs.
 - What happens when you mix features that were not designed to work together? Localization + preview + caching. Import + plugins + webhooks. OAuth + impersonation + API keys.
-- Is there anything interesting in the git history? Reverted security fixes, commented-out auth checks, secrets that were committed then removed (still in history).
+- Is there anything interesting in the git history? Reverted security fixes, commented-out auth checks, secrets that were committed then removed (still in history). Inspect history with neutralized `git` or a clean clone (see Universal execution safety in `SKILL.md`): `git log -p`/`git show` on the target's own `.git` run any `textconv` driver the target configured.
 - Which valid-account actions affect other users, shared integrity, availability, or operator-owned cost? Verify containment, quotas, authorization, and recovery around those actions.
 - Which operations are irreversible or require elevated confirmation? Bind authorization and approval to the final principal, action, and resource.
 - What assumptions does the code make about the environment? That the database is local, that the clock is accurate, that DNS is trustworthy, that the filesystem is case-sensitive?
