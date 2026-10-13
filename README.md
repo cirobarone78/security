@@ -69,6 +69,9 @@ Run `npx skills --help` for agent-selection and non-interactive options.
 
 Start your coding agent in (or pointed at) the codebase you want to audit, then ask it to do a security audit:
 
+> **Auditing untrusted code?** A repository's own Git metadata is attacker-controlled. Prefer targets obtained with a fresh `git clone` over archives that ship a `.git` directory, and avoid starting the agent inside an untrusted target's working directory. The skill runs `git` against the target with its configuration neutralized for this reason (see "Universal execution safety" in `SKILL.md`).
+
+
 ```
 security audit this codebase
 ```
